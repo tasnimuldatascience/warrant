@@ -503,3 +503,47 @@ def test_meta_over_the_built_corpus_spans_years():
     with TestClient(create_app(c, generate=False, warm=False)) as client:
         meta = client.get("/api/meta").json()
     assert meta["latest"] > meta["earliest"] >= meta["history_floor"]
+
+
+def test_metrics_exposes_prometheus_text(client: TestClient):
+    client.get("/api/meta")
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    body = response.text
+    assert "# TYPE warrant_requests_total counter" in body
+    assert "# TYPE warrant_request_duration_ms histogram" in body
+    assert 'warrant_requests_total{endpoint="/api/meta",status="2xx"}' in body
+    assert "warrant_corpus_chunks" in body
+
+
+def test_metrics_labels_by_route_template_not_by_path(client: TestClient):
+    """`/api/section/630.306` and `/api/section/630.307` must be one series, not two.
+    Labelling by raw path makes a metric whose cardinality is the size of the corpus, which
+    is the usual way a self-instrumented service takes down the collector scraping it."""
+    for _ in range(2):
+        client.get("/api/ask", params={"q": "restored annual leave", "as_of": "2024-01-01"})
+    body = client.get("/metrics").text
+    import re
+
+    endpoints = set(re.findall(r'warrant_requests_total\{endpoint="([^"]+)"', body))
+    # Several status classes per endpoint is fine and intended -- status is a bounded label.
+    # What must never happen is a distinct endpoint label per request.
+    assert "/api/ask" in endpoints
+    assert not any(e.startswith("/api/ask") and e != "/api/ask" for e in endpoints), endpoints
+    assert "restored" not in body, "a query string reached a label"
+
+
+def test_a_scrape_never_takes_the_service_down(client: TestClient, monkeypatch):
+    """Gauges are sampled at scrape time, so a broken store would otherwise turn a
+    monitoring request into a 500 -- and the moment you most want metrics is the moment the
+    store is unhappy."""
+    import warnings
+
+    from warrant.serve import api as api_module
+
+    monkeypatch.setattr(api_module, "uncovered",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert client.get("/metrics").status_code == 200

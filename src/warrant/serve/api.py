@@ -60,6 +60,7 @@ from ..index.store import Store
 from ..retrieve.dense import DenseIndex, uncovered
 from ..retrieve.hybrid import Retriever
 from ..retrieve.scope import PART_RESTRICTIONS, Scope
+from . import metrics as _metrics
 
 log = logging.getLogger(__name__)
 
@@ -323,6 +324,11 @@ class Runtime:
     _lock: threading.RLock = field(default_factory=threading.RLock)
     _pragma: threading.local = field(default_factory=threading.local)
     stats: Counter[str] = field(default_factory=Counter)
+    #: Per-process, not module-global. A module-level registry is shared by every app a test
+    #: session builds, so counts leak between tests and a metric assertion passes or fails
+    #: on test ordering -- which is how self-instrumentation ends up trusted less than the
+    #: thing it measures.
+    metrics: _metrics.Registry = field(default_factory=_metrics.build)
     warm_error: str | None = None
     started: float = field(default_factory=time.monotonic)
 
@@ -452,19 +458,33 @@ def _generate_answer(rt: Runtime, question: str, excerpts: list[tuple[str, str, 
     deadline = time.monotonic() + GENERATE_DEADLINE_S
     if not _GENERATION_SLOT.acquire(timeout=GENERATE_QUEUE_WAIT_S):
         rt.stats["generate_rejected"] += 1
+        rt.metrics.inc("warrant_admission_rejected_total", reason="queue_full")
         raise HTTPException(
             503, f"generator at capacity (1 concurrent, ~{GENERATE_QUEUE_WAIT_S:.0f}s queue)",
             headers={"Retry-After": str(RETRY_AFTER_S)})
     try:
         if deadline - time.monotonic() < GENERATE_FLOOR_S:
             rt.stats["generate_rejected"] += 1
+            rt.metrics.inc("warrant_admission_rejected_total", reason="deadline")
             raise HTTPException(
                 503, "queued too long to finish within the request deadline",
                 headers={"Retry-After": str(RETRY_AFTER_S)})
         rt.stats["generate_calls"] += 1
-        return rt.generator.answer(question, excerpts, as_of=as_of, scope=scope)
+        with rt.metrics.timed("warrant_generate_duration_s"):
+            return rt.generator.answer(question, excerpts, as_of=as_of, scope=scope)
     finally:
         _GENERATION_SLOT.release()
+
+
+
+def _route(request: Request) -> str:
+    """The matched route template, or "unmatched".
+
+    Falling back to the raw path here would defeat the whole point of this function: a 404
+    sweep over random URLs is exactly the traffic that would mint a new series per request.
+    """
+    route = request.scope.get("route")
+    return getattr(route, "path", None) or "unmatched"
 
 
 def _record(rt: Runtime, trace: Any, answer: Any = None) -> str | None:
@@ -474,6 +494,13 @@ def _record(rt: Runtime, trace: Any, answer: Any = None) -> str | None:
     write failure is logged and swallowed. The id is handed back to the caller so a user who
     saw a bad answer can quote something a maintainer can replay.
     """
+    # Stage timings come off the trace rather than being measured again here: the trace is
+    # already the record of what each stage cost, and a second stopwatch around the same
+    # code is a second number that can disagree with the one in the replay.
+    for stage, ms in getattr(trace, "timings", {}).items():
+        if stage != "total":
+            rt.metrics.observe("warrant_stage_duration_ms", ms, stage=stage)
+
     traces = rt.traces
     if traces is None:
         return None
@@ -530,6 +557,30 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
     )
 
     @app.middleware("http")
+    async def observe(request: Request, call_next) -> Response:
+        """Count and time every request, labelled by *route template*, never by path.
+
+        `/api/section/630.306` and `/api/section/630.307` are one series, not two. Labelling
+        by the raw path would make a metric whose cardinality is the size of the corpus, and
+        that is the usual way a self-instrumented service takes down the collector scraping
+        it rather than falling over itself.
+        """
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+            status = response.status_code
+        except Exception:
+            rt.metrics.inc("warrant_requests_total",
+                           endpoint=_route(request), status="5xx")
+            raise
+        elapsed = (time.perf_counter() - started) * 1000.0
+        endpoint = _route(request)
+        rt.metrics.inc("warrant_requests_total", endpoint=endpoint,
+                       status=f"{status // 100}xx")
+        rt.metrics.observe("warrant_request_duration_ms", elapsed, endpoint=endpoint)
+        return response
+
+    @app.middleware("http")
     async def request_id(request: Request, call_next) -> Response:
         """Echo the caller's request id, or mint one, so one line of a log names one request.
 
@@ -575,6 +626,26 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
         return ReadyResponse(ready=ok, corpus=corpus, chunks=chunks, models=models,
                              uncovered_chunks=stale,
                              generator=rt._generator is not None, detail=detail)
+
+    @app.get("/metrics", include_in_schema=False)
+    def prometheus() -> Response:
+        """Prometheus exposition. Gauges are sampled here rather than tracked continuously.
+
+        A gauge that is only correct when something remembered to update it is a gauge that
+        is wrong, and the three below are cheap: two SQLite aggregates and a set difference
+        over an array already in memory. Scrape cost is paid by the scraper, on its own
+        interval, and not by any request on the answering path.
+        """
+        try:
+            rt.metrics.set("warrant_corpus_chunks", rt.store.count())
+            if rt.models_loaded and rt.retriever.dense_index is not None:
+                rt.metrics.set("warrant_uncovered_chunks",
+                               uncovered(rt.retriever.dense_index, rt.store))
+            rt.metrics.set("warrant_ready", 1 if rt.models_loaded else 0)
+        except Exception:  # noqa: BLE001 - a scrape must never be the thing that fails
+            log.exception("metrics gauges could not be sampled")
+        return Response(rt.metrics.render(),
+                        media_type="text/plain; version=0.0.4; charset=utf-8")
 
     # -- metadata ---------------------------------------------------------------
 
