@@ -274,6 +274,16 @@ def test_interrogative_scaffolding_is_stripped():
     assert rewrite("Can I carry over annual leave?") == "carry over annual leave"
 
 
+def test_a_bare_interrogative_is_stripped_too():
+    """None of the five question words is ever a content term in a regulation, and each was
+    surviving whichever multi-word form failed to match around it."""
+    assert rewrite("How is SES performance appraised?") == "SES senior executive service " \
+                                                           "performance appraised"
+    assert rewrite("What changed in the annual leave rules?") == "annual leave rules"
+    assert rewrite("When may an agency make a temporary limited appointment?") == (
+        "agency make a temporary limited appointment")
+
+
 def test_abbreviations_are_expanded_beside_the_acronym_not_instead_of_it():
     """eCFR spells out "reduction in force" in the operative text and uses "RIF" as a defined
     term; keeping only one form loses the paragraphs that use the other."""
