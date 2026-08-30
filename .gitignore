@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Everything under data/ is reproducible from
+#   warrant corpus fetch  ->  warrant corpus build  ->  warrant index build
+# The eCFR snapshot cache alone is a few hundred MB of XML. None of it belongs in git.
+data/
+# runs/ is scratch: every eval invocation writes here. The canonical run records behind the
+# published failure budget are copied into results/ and ARE tracked, so a reader can audit
+# the numbers without re-running anything.
+runs/
+*.parquet
+*.npy
+*.pkl
+*.gguf
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+.env
+.DS_Store
+Thumbs.db

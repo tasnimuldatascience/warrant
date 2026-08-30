@@ -1,0 +1,115 @@
+"""Client for the eCFR versioner API.
+
+Two endpoints carry the entire corpus:
+
+    /versions/title-{t}.json?part={p}   section-level version records
+    /full/{date}/title-{t}.xml?part={p} the part as it stood on {date}
+
+Two things about this API are easy to get wrong, and both were found by running it rather
+than by reading the docs:
+
+1. ``/versions`` returns one row per *section* version, not per snapshot. Part 630 returns
+   226 rows that collapse to 8 distinct dates. Counting rows overstates the amount of
+   diffable history by more than an order of magnitude.
+
+2. Every part reports a first version date of 2016-12-27, and ``/full/`` returns 404 for it.
+   The usable point-in-time window starts in 2017.
+
+Responses are cached on disk keyed by request, because the corpus is immutable history: a
+snapshot of Part 630 as of 2019-06-01 will never change. A rebuild should cost no requests.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+import httpx
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+API = "https://www.ecfr.gov/api/versioner/v1"
+USER_AGENT = "warrant/0.1 (+https://github.com/tasnimuldatascience/warrant)"
+
+#: /full/ 404s at the 2016-12-27 floor every part advertises.
+HISTORY_FLOOR = "2017-01-01"
+
+
+class SnapshotUnavailable(LookupError):
+    """The API has a version record for this date but no retrievable text."""
+
+
+@dataclass
+class ECFRClient:
+    cache_dir: Path
+    delay_s: float = 1.0
+    timeout_s: float = 180.0
+    _last_request: float = 0.0
+
+    def __post_init__(self) -> None:
+        self.cache_dir = Path(self.cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # -- transport ---------------------------------------------------------------
+
+    @retry(
+        retry=retry_if_exception_type((httpx.TransportError, httpx.HTTPStatusError)),
+        wait=wait_exponential(multiplier=2, min=2, max=60),
+        stop=stop_after_attempt(4),
+        reraise=True,
+    )
+    def _fetch(self, url: str) -> bytes:
+        elapsed = time.monotonic() - self._last_request
+        if elapsed < self.delay_s:
+            time.sleep(self.delay_s - elapsed)  # a public API; do not hammer it
+        r = httpx.get(url, headers={"User-Agent": USER_AGENT},
+                      timeout=self.timeout_s, follow_redirects=True)
+        self._last_request = time.monotonic()
+        if r.status_code == 404:
+            raise SnapshotUnavailable(url)
+        r.raise_for_status()
+        return r.content
+
+    def _cached(self, url: str, name: str) -> bytes:
+        path = self.cache_dir / name
+        if path.exists():
+            return path.read_bytes()
+        missing = self.cache_dir / (name + ".404")
+        if missing.exists():
+            raise SnapshotUnavailable(url)
+        try:
+            content = self._fetch(url)
+        except SnapshotUnavailable:
+            # Record the absence too. Re-probing a permanent 404 on every rebuild is a
+            # slow way to be rude to someone else's server.
+            missing.write_bytes(b"")
+            raise
+        path.write_bytes(content)
+        return content
+
+    # -- corpus ------------------------------------------------------------------
+
+    def version_dates(self, title: int, part: str, *,
+                      floor: str = HISTORY_FLOOR) -> list[str]:
+        """Distinct snapshot dates for a part, oldest first.
+
+        Distinct *dates* -- not the row count, which is per-section and much larger.
+        """
+        raw = self._cached(f"{API}/versions/title-{title}.json?part={part}",
+                           f"versions-t{title}-p{part}.json")
+        rows = json.loads(raw).get("content_versions", [])
+        return sorted({r["date"] for r in rows if r.get("date") and r["date"] >= floor})
+
+    def snapshot(self, title: int, part: str, date: str) -> bytes:
+        """Full XML of a part as it stood on ``date``."""
+        return self._cached(f"{API}/full/{date}/title-{title}.xml?part={part}",
+                            f"full-t{title}-p{part}-{date}.xml")
+
+    def snapshots(self, title: int, part: str, *, floor: str = HISTORY_FLOOR):
+        """Yield ``(date, xml)`` for every retrievable snapshot of a part."""
+        for date in self.version_dates(title, part, floor=floor):
+            try:
+                yield date, self.snapshot(title, part, date)
+            except SnapshotUnavailable:
+                continue

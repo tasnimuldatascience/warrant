@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push: {branches: [main]}
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is in the matrix deliberately: the eCFR corpus is XML with non-ASCII
+        # section symbols and em dashes, and encoding bugs only reproduce on a non-UTF-8
+        # default locale, which is every stock Windows install.
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install
+        # No neural extra: torch is ~2GB and the whole P0 story -- ingest, apparatus
+        # stripping, bitemporal store, lexical retrieval, amendment benchmark, failure
+        # budget -- is testable without it.
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check src tests
+      - name: Test
+        run: pytest -q --cov=warrant --cov-report=term-missing
+
+  invariants:
+    # The deterministic correctness gates from ARCHITECTURE.md section 9. Separated from the
+    # unit suite so a failure here reads as "the system is wrong", not "a test broke".
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q tests/invariants -m ""
