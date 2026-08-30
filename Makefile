@@ -1,43 +1,29 @@
 # Everything a reviewer needs, in the order they need it.
+# Targets appear here only when the code behind them exists.
 PY ?= python
+CFG ?= configs/default.yaml
 
-.PHONY: help install fetch build index bench eval autopsy serve test lint fmt clean all
+.PHONY: help install survey fetch diff test lint fmt clean
 
 help:
 	@echo "install   editable install with dev extras"
+	@echo "survey    how much amendment history each eCFR part actually has"
 	@echo "fetch     download eCFR point-in-time snapshots (cached, ~10 min first run)"
-	@echo "build     parse snapshots into the bitemporal chunk store"
-	@echo "index     build lexical + dense indexes over the store"
-	@echo "bench     mine amendment diffs into the temporal benchmark"
-	@echo "eval      score the default system on all benchmark buckets"
-	@echo "autopsy   localize every failure to a pipeline stage; print the failure budget"
-	@echo "serve     API + dashboard on :8000"
-	@echo "test      run the test suite"
-	@echo "all       fetch -> build -> index -> bench -> eval -> autopsy"
+	@echo "diff      classify snapshot-to-snapshot change; report the discard rate"
+	@echo "test      run the test suite (offline)"
+	@echo "lint      ruff"
 
 install:
 	$(PY) -m pip install -e ".[dev]"
 
+survey:
+	$(PY) -m warrant.cli corpus survey -c $(CFG)
+
 fetch:
-	$(PY) -m warrant.cli corpus fetch -c configs/default.yaml
+	$(PY) -m warrant.cli corpus fetch -c $(CFG)
 
-build:
-	$(PY) -m warrant.cli corpus build -c configs/default.yaml
-
-index:
-	$(PY) -m warrant.cli index build -c configs/default.yaml
-
-bench:
-	$(PY) -m warrant.cli bench mine -c configs/default.yaml
-
-eval:
-	$(PY) -m warrant.cli eval run -c configs/default.yaml
-
-autopsy:
-	$(PY) -m warrant.cli autopsy run -c configs/default.yaml
-
-serve:
-	$(PY) -m warrant.cli serve -c configs/default.yaml
+diff:
+	$(PY) -m warrant.cli corpus diff -c $(CFG)
 
 test:
 	$(PY) -m pytest -q
@@ -50,5 +36,3 @@ fmt:
 
 clean:
 	rm -rf runs/* .pytest_cache .ruff_cache
-
-all: fetch build index bench eval autopsy

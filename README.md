@@ -40,13 +40,13 @@ deliberately does *not* claim.
 git clone https://github.com/tasnimuldatascience/warrant
 cd warrant && make install
 
-make fetch      # eCFR point-in-time snapshots (cached)
-make build      # parse into the bitemporal chunk store
-make index      # lexical + dense indexes
-make bench      # mine amendment diffs into the temporal benchmark
-make eval       # score every bucket
-make autopsy    # localize failures; print the budget
+make survey     # how much amendment history each eCFR part actually has
+make fetch      # download point-in-time snapshots (cached)
+make diff       # classify what changed, and report the discard rate
 ```
+
+Later phases (bitemporal store, retrieval, benchmark, failure budget) add their targets to
+`make help` as they land. Nothing is advertised before it works.
 
 **No graphics card?** Set `index.dense.enabled: false`. The lexical path and the entire
 failure budget run without torch.
