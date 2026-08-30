@@ -90,17 +90,17 @@ def _roman_to_int(token: str) -> int | None:
 
 
 def _alpha_to_int(token: str) -> int | None:
-    """Spreadsheet-style ordinal: a=1 ... z=26, aa=27.
+    """Ordinal of a lettered designator: a=1 ... z=26, aa=27, bb=28 ... zz=52.
 
-    The doubled form is not hypothetical: §890.201 runs (a) through (z) and on to (gg).
+    Past (z) the CFR doubles the letter rather than counting in base 26, so (bb) is the 28th
+    designator and not the 54th. §330.609 runs (a) through (z) and on to (ee), and reading
+    those spreadsheet-style broke the sequence at (bb): (cc) was no longer its successor, so
+    the parser opened a level under it and minted §330.609(bb)(1)(cc).
     """
     low = token.lower()
-    if not low.isalpha():
+    if not low.isalpha() or len(set(low)) != 1:
         return None
-    n = 0
-    for ch in low:
-        n = n * 26 + (ord(ch) - 96)
-    return n
+    return 26 * (len(low) - 1) + (ord(low[0]) - 96)
 
 
 #: (designator, kind) per level, deepest last.
@@ -146,10 +146,9 @@ def _forms(token: str) -> dict[str, int]:
     roman = _roman_to_int(token)
     if roman is not None:
         out["roman"] = roman
-    if len(set(token)) == 1:  # (a) .. (z), then (aa) .. (zz); never (ab)
-        alpha = _alpha_to_int(token)
-        if alpha is not None:
-            out["alpha"] = alpha
+    alpha = _alpha_to_int(token)
+    if alpha is not None:
+        out["alpha"] = alpha
     return out
 
 
@@ -211,9 +210,9 @@ def _placements(stack: _Stack, token: str,
         here, there = forms.get(kind), _forms(previous).get(kind)
         if here is None or there is None:
             continue
-        if here == there + 1:
+        if _is_successor(token, previous, kind):
             cost = _CONTINUE
-        elif here > there + 1:
+        elif here > there:
             cost = _SKIP
         elif here == 1:
             cost = _RESTART
@@ -253,9 +252,11 @@ def _placements(stack: _Stack, token: str,
 
 
 #: How many readings of a section's numbering are carried forward at once. The ambiguity is
-#: local -- one or two designators deep -- and the widest section in the corpus, §890.301 with
-#: 52 paragraphs, resolves at a width of 4. 16 is slack, and costs nothing measurable.
-_BEAM = 16
+#: local -- one or two designators deep -- so the beam converges early: over all 226 cached
+#: snapshots, widths 4, 8, 16 and 32 give byte-identical anchors and widths 2 and 3 do not.
+#: 8 is double the width that converged, and parsing the whole cache costs 10.9s against 6.2s
+#: for the greedy push it replaces.
+_BEAM = 8
 
 
 def _resolve(items: list[tuple[list[str] | None, str]]) -> list[str]:
