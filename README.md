@@ -111,13 +111,21 @@ unbounded thread pool in front of the semaphore, not the semaphore.
 
 Every failure attributed to the first stage at which no sufficient evidence survives — and the
 ladder runs through `generation` and `grounding`, so a model failure is attributable rather
-than invisible. On dev: 119 items, 3 failures, `ingestion` / `applicability` / `temporal` all
-zero.
+than invisible. On dev: 114 items, **1** failure, `ingestion` / `applicability` / `temporal`
+all zero. It was 3 of 119 until the citation-anchor fix below; correct addresses turn out to
+matter more than any ranking change measured here.
 
-The instrument found four of its own bugs, each written up in [results/](results/): a benchmark
-whose items were unsatisfiable by construction, a reranker blamed for truncation, an
+The instrument keeps finding its own bugs, each written up in [results/](results/): a
+benchmark whose items were unsatisfiable by construction, a reranker blamed for truncation, an
 intervention label that implied the wrong fix, and a chunker dropping 4.5% of the corpus that
 no instrument could detect — because the gold chunks came from the same parser.
+
+Later, and more uncomfortably: three published serving numbers wrong in the same direction
+(21.3 tok/s and a 3-per-minute ceiling against a measured 29.2 and 7.7); a verifier docstring
+citing 148 hand-labelled pairs from a set that existed nowhere; an optimisation that was
+*slower* than doing nothing because it recomputed a constant per query; and 6.07% of citation
+addresses malformed. Each was found by building the instrument that could see it, which is
+the argument this repository is actually making.
 
 ## Five sources, and an authority that binds
 
@@ -138,7 +146,31 @@ ties are the common case, since RRF sums a handful of reciprocals. A guidance pa
 readers tends to use the asker's own words, which is exactly what lets it outrank the law it
 summarises.
 
-Two bugs found by wiring this up, both of which reported success while being wrong. Statute
+### Citation addresses were wrong, not merely ugly
+
+`890.301#ii-7-n` was the stored address of paragraph **(n)** of §890.301 — a top-level
+paragraph filed under a roman numeral seven levels down. The designator stack lost its
+footing at a roman run and never recovered, and **6.07% of in-force anchors were malformed**:
+addresses that look checkable and are not, which is worse than a missing one.
+
+The ambiguity is genuine and no local rule settles it. After `(h)(1)`, an `(i)` is equally
+the roman opening `(h)(1)(i)` and the letter opening a top-level `(i)` — §890.301 contains
+both, nine paragraphs apart. eCFR gives nothing to fall back on: across 226 snapshots,
+122,273 of 122,467 in-section `<P>` elements are direct children carrying no level, path or
+designator. So the decision is deferred and a beam over the section's whole designator stream
+picks the cheapest reading.
+
+| | before | after |
+|---|---:|---:|
+| malformed anchors (in force) | 604 (**6.07%**) | **0** |
+| the drafters' own references resolving exactly | 86.9% | **89.4%** |
+| unresolved | 8.5% | **4.9%** |
+
+Measured against the cross-references the drafters wrote themselves — "paragraph (g)(3) of
+this section" — which is ground truth nobody in this project authored. 810 anchors renamed;
+no text changed.
+
+### Two more that reported success while being wrong Statute
 carried the OLRC *edition* date as `valid_from`, so 5 U.S.C. 6304 — in force since 1966 —
 began in 2026 as far as the as-of predicate was concerned, and no dated query in the corpus
 window could see it. And chunks ingested after an index build have no vector, so they are

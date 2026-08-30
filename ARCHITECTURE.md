@@ -436,9 +436,24 @@ system is wrong* rather than *a test broke*.
 - **Every citation address is unambiguous.** 13% were not, before paragraph designators were
   tracked hierarchically: eCFR flattens the CFR's `(a) -> (1) -> (i) -> (A)` nesting into
   sibling `<P>` elements, so a section with several sub-lists restarts at `(a)` repeatedly and
-  `550.703#a` matched four different paragraphs. Levels are now recovered by designator
-  sequence continuity — `(ii)` after `(b)(1)(i)` is the second roman numeral, not the ninth
-  letter, and only what came before can tell those apart.
+  `550.703#a` matched four different paragraphs.
+
+  Sequence continuity alone — "`(ii)` after `(b)(1)(i)` is the second roman numeral" — is
+  what this document used to claim, and it was half the story. It produced `890.301#ii-7-n`
+  for a top-level paragraph (n): the stack lost its footing at a roman run and never
+  recovered, and **6.07% of in-force anchors were malformed**, addresses that look checkable
+  and are not. The ambiguity is real and local reading cannot resolve it: after `(h)(1)`, an
+  `(i)` is equally the roman opening `(h)(1)(i)` and the letter opening a top-level `(i)`,
+  and §890.301 contains both, nine paragraphs apart. eCFR offers no nesting to fall back on
+  — across 226 snapshots, 122,273 of 122,467 in-section `<P>` elements are direct children
+  with no level, path or designator attribute, so the answer `sources/usc.py` uses for USLM
+  does not transfer.
+
+  Levels are now recovered by a beam over the section's whole designator stream: kind is
+  decided by the *parent* rather than by absolute depth, the `(i)` decision is deferred, and
+  the cheapest reading of the entire sequence wins. Malformed anchors: **0**. The drafters'
+  own cross-references — "paragraph (g)(3) of this section", written by the people who wrote
+  the numbering — resolve 86.9% → 89.4%, unresolved 8.5% → 4.9%.
 - Validity intervals for a paragraph never overlap.
 - Apparatus stripping is idempotent, and fixtures assert the known pointer forms are removed.
 - *(P1)* Every claim in an emitted answer carries at least one evidence ID.

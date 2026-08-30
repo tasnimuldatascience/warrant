@@ -1,25 +1,20 @@
 {
   "bucket": "temporal/dev",
-  "config_hash": "dd285059fd32",
-  "items": 119,
-  "failures": 3,
-  "success_rate": 0.9748,
+  "config_hash": "dbac692062d7",
+  "items": 114,
+  "failures": 1,
+  "success_rate": 0.9912,
   "observational": [
     {
-      "stage": "rerank",
-      "failures": 2,
-      "share": "66.7%"
-    },
-    {
-      "stage": "truncation",
+      "stage": "fusion",
       "failures": 1,
-      "share": "33.3%"
+      "share": "100.0%"
     }
   ],
   "interventional": [
     {
       "repair": "ranking",
-      "implicated": 3
+      "implicated": 1
     }
   ],
   "stages": [

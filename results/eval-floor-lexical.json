@@ -5,7 +5,7 @@
       "distractor_ceiling": null,
       "distractors_reachable": 0,
       "n": 29,
-      "sufficiency_floor": 0.3888888888888889
+      "sufficiency_floor": 0.3870967741935484
     },
     {
       "bucket": "scope",
@@ -25,12 +25,12 @@
       "bucket": "temporal",
       "distractor_ceiling": null,
       "distractors_reachable": 0,
-      "n": 229,
-      "sufficiency_floor": 0.9518072289156626
+      "n": 233,
+      "sufficiency_floor": 0.9627507163323782
     }
   ],
-  "config_hash": "d10462f14824",
+  "config_hash": "dbac692062d7",
   "models": {},
-  "recorded_at": "2026-08-30T21:22:11+00:00",
+  "recorded_at": "2026-08-30T22:00:20+00:00",
   "split": "test"
 }

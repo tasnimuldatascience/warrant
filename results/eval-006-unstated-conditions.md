@@ -1,5 +1,11 @@
 # Eval 006 — the true sentence with the exception dropped
 
+> **Stale chunk ids.** Some evidence ids quoted below no longer exist: the parser was
+> fixed for a roman-numeral defect that malformed 6.07% of in-force anchors, renaming 810 of
+> them. Texts and counts are unchanged — every difference is a rename. Left as written,
+> because a results doc records what was measured on a day. See
+> [eval-012](eval-012-anchor-correctness.md).
+
 > **Superseded serving figures.** This report quotes 21.3 tok/s and a 3-per-minute
 > ceiling. Both are wrong: an isolated re-derivation measured 29.2–29.9 tok/s over
 > ~205 output tokens, so an answer is 6.6 s and the ceiling is 7.7 req/min. The text

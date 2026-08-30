@@ -5,7 +5,7 @@
       "distractor_ceiling": null,
       "distractors_reachable": 0,
       "n": 29,
-      "sufficiency_floor": 0.5882352941176471
+      "sufficiency_floor": 0.7241379310344828
     },
     {
       "bucket": "scope",
@@ -25,15 +25,15 @@
       "bucket": "temporal",
       "distractor_ceiling": null,
       "distractors_reachable": 0,
-      "n": 229,
-      "sufficiency_floor": 0.9428571428571428
+      "n": 233,
+      "sufficiency_floor": 0.9335664335664335
     }
   ],
-  "config_hash": "d10462f14824",
+  "config_hash": "dbac692062d7",
   "models": {
     "dense": "BAAI/bge-small-en-v1.5",
     "rerank": "cross-encoder/ms-marco-MiniLM-L-6-v2"
   },
-  "recorded_at": "2026-08-30T21:21:23+00:00",
+  "recorded_at": "2026-08-30T22:00:08+00:00",
   "split": "test"
 }
