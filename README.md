@@ -6,8 +6,8 @@
 
 [![license](https://img.shields.io/badge/license-MIT-22863a)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.12%20|%203.13-3776ab?logo=python&logoColor=white)](pyproject.toml)
-[![tests](https://img.shields.io/badge/tests-134%20passing-22863a)](tests/)
-[![corpus](https://img.shields.io/badge/corpus-13,145%20chunk%20versions%20|%2026%20CFR%20parts-5b8cff)](results/spike-001-amendment-viability.md)
+[![tests](https://img.shields.io/badge/tests-246%20passing-22863a)](tests/)
+[![corpus](https://img.shields.io/badge/corpus-13,145%20chunk%20versions%20|%2026%20CFR%20parts-5b8cff)](results/eval-004-held-out.md)
 
 </div>
 
@@ -15,98 +15,95 @@
 
 ## What is this?
 
-A retrieval system over US federal HR regulation that answers **for a given scope, as of a
-given date** — and that localizes every wrong answer to the pipeline stage responsible.
+A question-answering system over US federal HR regulation that answers **for a given scope, as
+of a given date** — and that localizes every wrong answer to the pipeline stage responsible.
 
-Ask *"how long must restored annual leave be scheduled within?"* and the correct answer
-depends on when you are asking, because the regulation changed. Ask *"how is my within-grade
-increase determined?"* and it depends on whether you are paid under the General Schedule or
-the Federal Wage System, because different parts of the CFR govern each.
+Ask *"by when must restored annual leave be scheduled?"* and the correct answer depends on
+when you are asking, because the regulation changed. Ask *"how is my within-grade increase
+determined?"* and it depends on whether you are paid under the General Schedule or the Federal
+Wage System, because different parts of the CFR govern each.
 
 Built on the [eCFR](https://www.ecfr.gov) versioner API, which serves the text of any part
-**as it stood on any date**. Nothing here is synthetic: every benchmark question is grounded
+**as it stood on any date**. Nothing is synthetic: every temporal benchmark item is grounded
 in an amendment that actually happened.
+
+## Do the predicates work?
+
+Every number below is on a **held-out test split**, split by section. Retrieval parameters
+were chosen by reading the failure budget, so the budget runs on `dev` and results are
+reported from `test` — the two commands default to opposite sides.
+
+| removing | measure | delta | 95% CI | won / lost | p |
+|---|---|---:|:---:|---:|---:|
+| the as-of predicate | sufficiency | +2.2 | 0.0–5.5 | 5 / 0 | 0.06 |
+| the as-of predicate | **wrong-version rate** | **+96.1** | 92.8–99.5 | **220 / 0** | 1.2e-66 |
+| the cross-encoder | sufficiency | +1.3 | 0.0–4.0 | 4 / 1 | 0.38 |
+
+Paired and section-clustered — 229 temporal items come from 47 sections, so items are not
+independent trials and an item-level bootstrap reports an interval roughly 3.5× too narrow.
+
+**Sufficiency alone would have called the as-of predicate useless.** With `final_k: 16`
+several versions of a section fit in the result list at once, so removing the predicate barely
+changes whether the right paragraph is present — it changes whether the *wrong* one is present
+beside it. One measure would have dismissed the predicate on the very bucket built to prove it
+works. The cross-encoder, on the same test, does nothing measurable.
+
+## The generator
+
+Retrieval quality and answer quality are different questions, and only the first used to be
+measured. Held-out human items:
+
+| measure | value | 95% CI |
+|---|---:|:---:|
+| hallucination rate | **1.5%** | 0.3–8.0 |
+| citation precision | **98.5%** | 92.1–99.7 |
+| answered with evidence present | 23 | correct |
+| **answered with evidence absent** | **6** | **wrong — answered anyway** |
+| abstained, either way | 0 | |
+
+**The model never abstains.** A low hallucination rate only means something if the system also
+declines when it should. That is the next thing to fix, and it is now a number rather than an
+assumption.
+
+## Latency against quality
+
+| configuration | p50 | p95 | sufficiency |
+|---|---:|---:|---:|
+| lexical only | **23.8 ms** | 31.5 ms | 96.7% |
+| + dense | 41.0 ms | 51.2 ms | 96.7% |
+| + cross-encoder | 71.0 ms | 131.1 ms | 98.3% |
+
+Lexical-only is three times faster at the same quality on this bucket. A stage may be shed
+under load only where this table shows it inside the noise — declaring which stages are
+optional without measuring them is how a load-shedding policy trades a slow answer for a wrong
+one.
+
+Generation is a different order: 21.3 tokens/s unbatched, so the serving ceiling is **three
+requests per minute**. The API admits under a semaphore and returns 503 with `Retry-After`
+rather than queueing silently for 33 minutes.
 
 ## The failure budget
 
-Every failure attributed to the first stage at which no sufficient evidence survives, and
-what happened when the largest rows were fixed.
+Every failure attributed to the first stage at which no sufficient evidence survives — and the
+ladder runs through `generation` and `grounding`, so a model failure is attributable rather
+than invisible. On dev: 119 items, 3 failures, `ingestion` / `applicability` / `temporal` all
+zero.
 
-| stage | before | after | |
-|---|---:|---:|---|
-| ingestion | 0 | 0 | |
-| applicability | 0 | 0 | |
-| temporal | 0 | 0 | |
-| retrieval | 25 | 25 | unchanged — correct, the fix was downstream |
-| fusion | 87 | **40** | −47 |
-| rerank | 46 | 64 | +18 — bottleneck moved downstream |
-| truncation | 78 | **41** | −37 |
-| **total failures** | **236** | **170** | 67.3% → **76.4%** satisfied |
-
-Measured before the chunker fix below; the mechanism and the +9.2-point paired shift are
-unaffected.
-
-Two thirds of failures were evidence the system had already found and then cut. Widening the
-fused head and the final cut — a fix chosen *from that table*, not in advance — removed 66 of
-them. `retrieval` did not move, which is right: a downstream window cannot change what was
-retrieved.
-
-[**results/eval-002**](results/eval-002-failure-budget.md) has the full run, including two
-bugs the budget found in itself.
-
-## Do the predicates actually work?
-
-Asserting that a temporal filter works is easy. This is the measurement.
-
-Paired and section-clustered, because items from one section are not independent trials —
-95 sections supply 737 temporal items and one of them supplies over a third:
-
-| removing | delta | 95% CI | won / lost | p | verdict |
-|---|---:|:---:|---:|---:|---|
-| the as-of predicate | **+13.8** | 3.2 – 21.7 | 105 / 3 | 1.3e-27 | carries its weight |
-| the cross-encoder | +0.5 | −2.4 – 2.2 | 68 / 64 | 0.79 | **not measurable** |
-
-Without the as-of predicate, **62.8%** of answers cite a rule that was not in force on the
-date asked; without applicability, **100%** cite a part that does not govern the asker.
-
-The second row is the interesting one. An earlier revision charged the cross-encoder with
-37.6% of all failures — the plurality — by counting the 64 items it demoted out of the final
-k and ignoring the 68 it promoted in. Net, it moves this bucket by half a point for ~80% of
-retrieval latency. [results/eval-003](results/eval-003-corrected-statistics.md) withdraws
-that reading.
-
-## Buckets, reported separately
-
-| bucket | n | sections | sufficiency | 95% CI | what it measures |
-|---|---:|---:|---:|:---:|---|
-| temporal | 737 | 95 | 76.9% | 68.3–93.9 | dating correctness |
-| human | 42 | 42 | 81.0% | 66.7–92.9 | realistic queries |
-| scope | 60 | 60 | 100.0% | 97.0–100.0 | not over-excluding |
-| scope-exclusion | 60 | 60 | n/a | | not over-including |
-| generated | 130 | 130 | 100.0% | 97.1–100.0 | corpus reachability |
-
-Never averaged into one number, and the intervals are section-clustered rather than
-item-level — an item-level bootstrap reported 73.2–79.3 for the temporal bucket, about 3.5×
-too narrow. The honest resolution here is roughly nine points.
-
-`generated` at 100% is not an achievement: its queries are built from the paragraph they
-retrieve and it is saturated at k=1, so it is a reachability assertion rather than a
-benchmark row. `human` at 42 items cannot rank configurations.
-
-**The headline is a development number.** `rerank_top_k` and `final_k` were chosen by reading
-the failure budget over these same items, and there is no held-out split yet.
+The instrument found four of its own bugs, each written up in [results/](results/): a benchmark
+whose items were unsatisfiable by construction, a reranker blamed for truncation, an
+intervention label that implied the wrong fix, and a chunker dropping 4.5% of the corpus that
+no instrument could detect — because the gold chunks came from the same parser.
 
 ## What this is not
 
-**It is not access control.** eCFR is published law. Nothing here is confidential, nothing
-can leak, and no leak-rate claim is made. Filtering by who is asking is an *applicability*
+**It is not access control.** eCFR is published law. Nothing here is confidential, nothing can
+leak, and no leak-rate claim is made. Filtering by who is asking is an *applicability*
 question — citing a rule that does not govern you is a correctness failure, not a security
 breach. [ARCHITECTURE.md](ARCHITECTURE.md) section 3 says this at length, because it is the
 easiest thing in this project to overclaim.
 
-It is also not legal advice, not a general web-scale RAG, and not yet a generation system:
-everything above is retrieval-only. See the phase table in
-[ARCHITECTURE.md](ARCHITECTURE.md) section 12.
+Not legal advice. Not a general web-scale RAG. Every architecture section is marked
+`[built]`, `[partial]` or `[designed]` so no claim has to be taken on trust.
 
 ## Run it
 
@@ -114,30 +111,36 @@ everything above is retrieval-only. See the phase table in
 git clone https://github.com/tasnimuldatascience/warrant
 cd warrant && make install
 
-make survey     # how much amendment history each eCFR part actually has
-make fetch      # download point-in-time snapshots (~220 files, cached, ~10 min once)
-make build      # parse into the bitemporal store
-make index      # embed for dense retrieval (~10 s on a laptop GPU)
-make eval       # score every bucket, with ablations
-make autopsy    # localize failures; print the failure budget
+make fetch        # eCFR point-in-time snapshots (cached, ~10 min once)
+make build        # parse into the bitemporal store
+make index        # embed for dense retrieval (~10 s on a laptop GPU)
+make eval         # score the held-out split, with paired ablations
+make autopsy      # localize failures on dev; print the failure budget
+make generation   # hallucination, citation precision, abstention
+make latency      # latency vs quality per configuration
+make serve        # the API on :8000
 ```
 
-**No graphics card?** Set `index.dense.enabled: false` and `index.rerank.enabled: false`.
-The lexical path, both predicates and the whole failure budget run without torch.
+**No graphics card?** Set `index.dense.enabled: false` and `index.rerank.enabled: false`. The
+lexical path, both predicates and the whole failure budget run without torch — and on this
+bucket lexical-only matches the full pipeline anyway.
 
 ## How it works
 
-Point-in-time snapshots — including the flush paragraphs and tables an earlier chunker
-dropped, 4.5% of the corpus and 88% of one section — are ingested into a **bitemporal**
-SQLite store — `valid_from/valid_to`
-for when the text was the law, `system_from/system_to` for when Warrant believed it was, so a
-past answer can be reproduced from what was known at the time. Retrieval is BM25 over FTS5
-plus dense cosine, fused by reciprocal rank, with the as-of and applicability predicates
-pushed **into** the query rather than applied to the results. Every stage writes what it saw
-into a trace, and the autopsy reads the trace rather than re-running retrieval.
+Point-in-time snapshots — including the flush paragraphs and tables an earlier chunker dropped
+— are ingested into a **bitemporal** SQLite store: `valid_from/valid_to` for when the text was
+the law, `system_from/system_to` for when Warrant believed it was, so a past answer can be
+reproduced from what was known at the time. Retrieval is BM25 over FTS5 plus dense cosine,
+fused by reciprocal rank, with the as-of and applicability predicates pushed **into** the query
+rather than applied to the results.
 
-[ARCHITECTURE.md](ARCHITECTURE.md) is the full design, including what it deliberately does
-not claim.
+Every stage records what it saw, the score it ranked by, and how long it took. Traces persist,
+so `warrant replay show` reconstructs a past request without re-running retrieval, and
+`warrant replay diff` re-runs it through today's pipeline and reports the first stage that
+moved. The failure budget reads those traces.
+
+[ARCHITECTURE.md](ARCHITECTURE.md) is the full design, including what it deliberately does not
+claim.
 
 ## License
 

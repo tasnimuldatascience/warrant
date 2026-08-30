@@ -1,35 +1,25 @@
 {
-  "bucket": "temporal",
-  "config_hash": "63fcbc7607bc",
-  "items": 721,
-  "failures": 170,
-  "success_rate": 0.7642,
+  "bucket": "temporal/dev",
+  "config_hash": "dd285059fd32",
+  "items": 119,
+  "failures": 3,
+  "success_rate": 0.9748,
   "observational": [
     {
-      "stage": "retrieval",
-      "failures": 25,
-      "share": "14.7%"
-    },
-    {
-      "stage": "fusion",
-      "failures": 40,
-      "share": "23.5%"
-    },
-    {
       "stage": "rerank",
-      "failures": 64,
-      "share": "37.6%"
+      "failures": 2,
+      "share": "66.7%"
     },
     {
       "stage": "truncation",
-      "failures": 41,
-      "share": "24.1%"
+      "failures": 1,
+      "share": "33.3%"
     }
   ],
   "interventional": [
     {
       "repair": "ranking",
-      "implicated": 40
+      "implicated": 3
     }
   ],
   "stages": [
@@ -39,6 +29,8 @@
     "retrieval",
     "fusion",
     "rerank",
-    "truncation"
+    "truncation",
+    "generation",
+    "grounding"
   ]
 }

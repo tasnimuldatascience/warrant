@@ -23,6 +23,15 @@ class CorpusConfig(BaseModel):
     history_floor: str = "2017-01-01"
     request_delay_s: float = 1.0
     cache_dir: str = "data/ecfr"
+    #: How long a cached /titles.json or /versions response stays authoritative. Snapshots
+    #: are immutable and cached forever; these two are where a new amendment first appears,
+    #: so pinning them freezes the corpus with no error to say so.
+    index_ttl_hours: float = 24.0
+    #: How long a recorded 404 is believed before the date is probed again.
+    negative_cache_ttl_days: float = 30.0
+    #: A 404 within this many days of the title's latest issue date is eCFR's publication
+    #: lag, not an absent snapshot, and is never written to the negative cache.
+    issue_date_lag_days: int = 30
 
 
 class StoreConfig(BaseModel):
@@ -33,6 +42,10 @@ class StoreConfig(BaseModel):
     #: rather than recomputed per request: recomputing takes minutes, and worse, it would let
     #: the dashboard drift from the numbers in results/ that the README quotes.
     budget: str = "results/failure-budget.json"
+    #: Recorded request traces. A separate database from the corpus: the corpus is
+    #: rebuilt wholesale and traces must survive that, since a trace whose corpus was
+    #: replaced is exactly the one worth replaying.
+    traces: str = "data/traces.sqlite3"
 
 
 class DiffConfig(BaseModel):
@@ -40,17 +53,34 @@ class DiffConfig(BaseModel):
     min_changed_tokens: int = 3
 
 
+#: Why every model field has a ``revision`` beside it: a bare HuggingFace repo name resolves
+#: to whatever ``main`` points at today. Three repositories nobody here controls can therefore
+#: change the published numbers without a commit in this one, and the config hash on every
+#: stored trace would not move -- so counterfactual replay would report "nothing changed"
+#: about the one thing that did. ``null`` keeps today's behaviour; a commit SHA or tag pins it.
+_REVISION_DOC = "HuggingFace revision (commit SHA, tag or branch). null = whatever main is."
+
+
 class DenseConfig(BaseModel):
     enabled: bool = True
     # Small on purpose: 384 dimensions, ~130 MB. A reviewer without a GPU must be able to
     # build this index, and at 13k chunks a larger encoder buys less than the reranker does.
     model: str = "BAAI/bge-small-en-v1.5"
+    revision: str | None = Field(default=None, description=_REVISION_DOC)
     batch_size: int = 64
 
 
 class RerankConfig(BaseModel):
     enabled: bool = True
     model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    revision: str | None = Field(default=None, description=_REVISION_DOC)
+
+
+class GenerateConfig(BaseModel):
+    #: null means the module default in ``warrant.generate.answer`` (Qwen2.5-1.5B-Instruct).
+    #: Naming the same repo in two places is how the two come to disagree.
+    model: str | None = None
+    revision: str | None = Field(default=None, description=_REVISION_DOC)
 
 
 class FusionConfig(BaseModel):
@@ -91,6 +121,7 @@ class Config(BaseModel):
     diff: DiffConfig = Field(default_factory=DiffConfig)
     index: IndexConfig = Field(default_factory=IndexConfig)
     retrieve: RetrieveConfig = Field(default_factory=RetrieveConfig)
+    generate: GenerateConfig = Field(default_factory=GenerateConfig)
     eval: EvalConfig = Field(default_factory=EvalConfig)
 
     @classmethod
@@ -118,6 +149,11 @@ class Config(BaseModel):
     @property
     def human_path(self) -> Path:
         p = Path(self.store.human_benchmark)
+        return p if p.is_absolute() else REPO_ROOT / p
+
+    @property
+    def traces_path(self) -> Path:
+        p = Path(self.store.traces)
         return p if p.is_absolute() else REPO_ROOT / p
 
     @property

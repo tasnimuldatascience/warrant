@@ -385,7 +385,7 @@ fixed first is decided by the P0 measurement, not in advance.
 
 ---
 
-## 8. Replay **[designed]**
+## 8. Replay **[built]**
 
 Two modes, two different guarantees.
 
@@ -395,9 +395,15 @@ context, prompt, model and config hashes, answer, verification verdicts. Inspect
 decision needs no historical index.
 
 **Counterfactual replay** — *what would today's system do with that request?* Re-runs the
-original query through the current pipeline and diffs: retrieval changed, ranking changed,
-context changed, answer changed, verdict changed. This is the regression harness over
-production traffic, and it is what gates a config change.
+original query through the current pipeline and diffs: which stage's membership changed,
+which reordered, what entered and left the final k, and the **first** stage that diverged.
+This is the regression harness over production traffic, and it is what gates a config change.
+
+Both are shipped: `warrant replay show` and `warrant replay diff`, over traces the API records
+on every request. Every stage stores the score it ranked by — BM25 out of the SQL, the RRF
+weight, the cross-encoder logit — and its wall-clock time; all of those used to be computed and
+dropped on the next line, which left "the reranker demoted it" and "the reranker barely
+preferred anything" indistinguishable after the fact.
 
 Splitting them is what makes the honest limit in section 4 a non-issue: neither mode pretends
 to rebuild a historical vector index.
@@ -426,17 +432,25 @@ system is wrong* rather than *a test broke*.
 - Apparatus stripping is idempotent, and fixtures assert the known pointer forms are removed.
 - *(P1)* Every claim in an emitted answer carries at least one evidence ID.
 
-## 10. Load policy **[designed]**
+## 10. Load policy **[partial]**
 
 Under pressure, **admission control before degradation**. Shedding the verifier to save
 latency trades a slow answer for a wrong answer about someone's leave entitlement, which is the
 wrong trade in this domain.
 
-Which stages *may* be shed is decided by measurement, not by declaration: the latency/quality
-Pareto frontier shows which stages are inside the noise. Stages measured to matter are never
-shed; the system queues and returns `429` with `Retry-After` instead. Any shedding policy that
-ships must come with a load test that actually produces the condition — untested admission
-control is aspirational config.
+Which stages *may* be shed is decided by measurement, not by declaration, and `make latency`
+now produces the frontier to decide from. Measured on the temporal bucket: lexical-only runs at
+23.8 ms p50 with the same sufficiency as the full pipeline at 71.0 ms, so on this corpus the
+cross-encoder is a sheddable stage and the as-of predicate — which the paired test shows moves
+the wrong-version rate by 96 points — is not.
+
+Admission control is **[built]** for generation, which is where the real ceiling is: 21.3
+tokens/s unbatched is roughly three requests per minute, so the API admits under a semaphore
+and returns `503` with `Retry-After` rather than queueing a client for the 33 minutes that 100
+concurrent requests would actually take. What is still **[designed]**: shedding individual
+retrieval stages under load, and a load test that produces the condition rather than reasoning
+about it. Untested admission control is aspirational config, and this half is tested only by
+unit tests that fake the contention.
 
 ---
 
@@ -454,14 +468,15 @@ Each ships something demonstrable on its own.
 
 | | Ships | Rationale |
 |---|---|---|
-| **P0** ✅ | eCFR point-in-time ingest, apparatus stripping, structural diff, bitemporal store, lexical + dense retrieval + RRF + cross-encoder, applicability and as-of predicates, four benchmark buckets, observational and interventional failure localization, one before/after shift, five CI invariants | The headline artifact needs no LLM: 6 of the 8 stages are pre-generation |
-| **P1** | Generation, evidence IDs, deterministic span alignment | Makes it a RAG system rather than a search system |
-| **P2** | UI: time slider, scope selector, citation highlighting, trace viewer | The shareable artifact |
-| **P3** | Calibrated verifier, abstention tiers, risk–coverage | Depth; the repo stands without it |
-| **P4** | Artifact + counterfactual replay | |
-| **P5** | Latency Pareto, measured shedding, admission control, load test | Only if the frontier is real |
+| **P0** ✅ | eCFR point-in-time ingest, apparatus stripping, structural diff, bitemporal store, lexical + dense + RRF + cross-encoder, applicability and as-of predicates, four benchmark buckets with a section-level dev/test split, observational and interventional failure localization, seven CI invariants | The headline artifact needs no LLM |
+| **P1** ✅ | Generation, evidence ids, deterministic span alignment, and the measurement of all three — hallucination rate, citation precision, abstention quality | A generator nothing scores is a generator nobody can trust |
+| **P2** | UI: time slider, scope selector, citation highlighting, trace viewer | Designed; the API it runs on is built |
+| **P3** | Calibrated verifier, abstention tiers, risk–coverage | The measured gap: the model never abstains, on 6 of 29 held-out questions |
+| **P4** ✅ | Artifact and counterfactual replay over persisted traces | |
+| **P5** | Retrieval-stage shedding and a real load test | The latency frontier is measured; the shedding policy is not tested under load |
 
-P1 does not start until P0 shows the benchmark is viable.
+P1 did not start until P0 showed the benchmark was viable, and the benchmark was
+rebuilt twice after that when the instrument found it measuring the wrong thing.
 
 ## 13. Hardware envelope
 

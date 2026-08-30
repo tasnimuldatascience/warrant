@@ -15,28 +15,63 @@ corpus:
   history_floor: "2017-01-01"
   request_delay_s: 1.0          # public API; be polite
   cache_dir: "data/ecfr"
+  # /full/ snapshots are immutable history and are cached forever. /titles.json and
+  # /versions are the opposite: they are where an amendment published tomorrow first
+  # becomes visible, so caching them with the same never-expire policy freezes the corpus --
+  # the next fetch re-reads the pinned files, sees no new dates and downloads nothing, with
+  # no error anywhere. Hence a TTL on those two only. `--refresh` bypasses it.
+  index_ttl_hours: 24.0
+  # How long a recorded 404 is believed. eCFR's issue date lags the calendar, so a 404 for a
+  # recent date is publication lag, not absence; those are never recorded at all (see
+  # issue_date_lag_days), and the rest are re-probed after this window.
+  negative_cache_ttl_days: 30.0
+  issue_date_lag_days: 30
 
 store:
   path: "data/warrant.sqlite3"
   dense_path: "data/dense"
   human_benchmark: "benchmarks/human.yaml"
   budget: "results/failure-budget.json"
+  traces: "data/traces.sqlite3"
 
 diff:
   wholesale_threshold: 0.50     # similarity below this = section replaced, not amended
   min_changed_tokens: 3         # below this, treat as editorial noise
 
+# Model weights: every `model` below has a `revision` beside it.
+#
+# A bare repo name resolves to whatever that repository's `main` points at on the day the
+# weights are downloaded. Three repositories nobody here controls therefore sit underneath
+# the published numbers, and if one of them re-trains or re-quantises, the scores in
+# results/ change while every config hash stays identical -- so counterfactual replay would
+# report that nothing changed about the only thing that did.
+#
+# null = current behaviour (track `main`). To pin, put the commit SHA from the repository's
+# "Files and versions" tab, e.g.
+#
+#   revision: "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+#
+# A tag or branch name is accepted and is weaker: both can be moved.
+
 index:
   dense:
     enabled: true               # set false to run the entire P0 path with no GPU
     model: "BAAI/bge-small-en-v1.5"
+    revision: null
     batch_size: 64
   rerank:
     enabled: true               # set false to measure the pipeline without a cross-encoder
     model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    revision: null
   fusion:
     method: "rrf"
     k: 60
+
+generate:
+  # null = the default in warrant/generate/answer.py (Qwen/Qwen2.5-1.5B-Instruct). Naming
+  # the same repo here as well is how the two come to disagree.
+  model: null
+  revision: null
 
 retrieve:
   candidates_lexical: 100

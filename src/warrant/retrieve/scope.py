@@ -45,16 +45,26 @@ PART_RESTRICTIONS: dict[str, dict[str, frozenset[str]]] = {
     "337": {"service": frozenset({"competitive"})},
 }
 
-#: Facets a profile may declare. Anything else is ignored rather than silently mismatched.
-KNOWN_FACETS = frozenset({"pay_system", "service"})
+#: The values each facet can take, declared rather than derived from PART_RESTRICTIONS.
+#:
+#: Deriving the universe from the parts looked tidier and was wrong. All three
+#: service-restricted parts govern ``competitive``, so the derived universe had exactly one
+#: value, no contrasting value existed, and every ``service`` benchmark item was silently
+#: skipped -- the facet was declared, validated, documented and never once tested. The
+#: excepted service and the SES are real CFR categories whether or not a part in this corpus
+#: happens to restrict to them, and the vocabulary is what a profile is validated against.
+FACET_VALUES: dict[str, frozenset[str]] = {
+    "pay_system": frozenset({"GS", "FWS", "SES", "other"}),
+    "service": frozenset({"competitive", "excepted", "SES"}),
+}
+
+#: Facets a profile may declare. Anything else is rejected rather than silently mismatched.
+KNOWN_FACETS = frozenset(FACET_VALUES)
 
 
 def known_values(facet: str) -> frozenset[str]:
-    """Every value of ``facet`` that some part actually governs."""
-    values: set[str] = set()
-    for restriction in PART_RESTRICTIONS.values():
-        values |= restriction.get(facet, frozenset())
-    return frozenset(values)
+    """Every value ``facet`` can take."""
+    return FACET_VALUES.get(facet, frozenset())
 
 
 @dataclass(frozen=True)

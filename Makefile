@@ -2,8 +2,10 @@
 # Targets appear here only when the code behind them exists.
 PY ?= python
 CFG ?= configs/default.yaml
+SPLIT ?= test
 
-.PHONY: help install survey fetch build index eval autopsy test invariants lint fmt clean all
+.PHONY: help install survey fetch build index diff eval generation latency autopsy \
+        serve test invariants lint fmt clean all
 
 help:
 	@echo "install     editable install with dev extras"
@@ -11,15 +13,18 @@ help:
 	@echo "fetch       download eCFR point-in-time snapshots (cached, ~10 min first run)"
 	@echo "build       parse snapshots into the bitemporal store"
 	@echo "index       embed the store for dense retrieval"
-	@echo "diff        classify snapshot-to-snapshot change; report the discard rate"
-	@echo "eval        score every benchmark bucket, with ablations"
+	@echo "diff        classify what changed, and report the discard rate"
+	@echo "eval        score every bucket on the held-out split, with paired ablations"
+	@echo "generation  hallucination, citation precision, abstention"
+	@echo "latency     latency vs quality per configuration"
 	@echo "autopsy     localize every failure to a stage; print the failure budget"
+	@echo "serve       run the HTTP API on :8000"
 	@echo "test        run the unit suite (offline)"
-	@echo "invariants  run the deterministic correctness gates against a built corpus"
+	@echo "invariants  the deterministic correctness gates"
 	@echo "all         fetch -> build -> index -> eval -> autopsy"
 
 install:
-	$(PY) -m pip install -e ".[dev]"
+	$(PY) -m pip install -e ".[dev,serve]"
 
 survey:
 	$(PY) -m warrant.cli corpus survey -c $(CFG)
@@ -37,10 +42,19 @@ diff:
 	$(PY) -m warrant.cli corpus diff -c $(CFG)
 
 eval:
-	$(PY) -m warrant.cli eval run -c $(CFG)
+	$(PY) -m warrant.cli eval run -c $(CFG) --split $(SPLIT)
+
+generation:
+	$(PY) -m warrant.cli eval generation -c $(CFG) --split $(SPLIT)
+
+latency:
+	$(PY) -m warrant.cli eval latency -c $(CFG) --split $(SPLIT)
 
 autopsy:
 	$(PY) -m warrant.cli autopsy run -c $(CFG)
+
+serve:
+	$(PY) -m warrant.cli serve -c $(CFG)
 
 test:
 	$(PY) -m pytest -q

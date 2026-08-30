@@ -13,6 +13,7 @@ says what it bought.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,29 +27,41 @@ from .answer import (
 )
 
 #: Loaded once per process. A generator constructed per call would dominate every timing.
-_LOADED: dict[str, Any] = {}
+_LOADED: dict[tuple[str, str | None], Any] = {}
+_LOAD_LOCK = threading.Lock()
 
 
-def _pipeline(model_name: str):
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+def _pipeline(model_name: str, revision: str | None = None):
+    """Tokenizer and model, built once per (model, revision) and reused.
 
-    if model_name in _LOADED:
-        return _LOADED[model_name]
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-        device_map="cuda" if torch.cuda.is_available() else "cpu",
-    )
-    model.eval()
-    _LOADED[model_name] = (tokenizer, model)
-    return _LOADED[model_name]
+    ``revision`` pins a HuggingFace commit; unpinned, the published numbers ride on whatever
+    ``main`` is that day. The lock matters for the same reason it does in the encoder: this
+    model is ~2.9 GB on an 8 GB card, and two cold threads both taking the check-then-set
+    branch is an out-of-memory error rather than a slow request.
+    """
+    key = (model_name, revision)
+    with _LOAD_LOCK:
+        if key in _LOADED:
+            return _LOADED[key]
+
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name, revision=revision,
+            dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            device_map="cuda" if torch.cuda.is_available() else "cpu",
+        )
+        model.eval()
+        _LOADED[key] = (tokenizer, model)
+        return _LOADED[key]
 
 
 @dataclass
 class Generator:
     model_name: str = DEFAULT_MODEL
+    revision: str | None = None
     max_new_tokens: int = MAX_NEW_TOKENS
     #: Greedy first. The task is extraction and citation, not prose: sampling buys nothing
     #: and costs reproducibility, which a benchmark and a replay both depend on.
@@ -59,7 +72,7 @@ class Generator:
     def complete(self, messages: list[dict], *, temperature: float | None = None) -> str:
         import torch
 
-        tokenizer, model = _pipeline(self.model_name)
+        tokenizer, model = _pipeline(self.model_name, self.revision)
         text = tokenizer.apply_chat_template(messages, tokenize=False,
                                              add_generation_prompt=True)
         inputs = tokenizer([text], return_tensors="pt").to(model.device)

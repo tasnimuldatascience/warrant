@@ -35,6 +35,7 @@ Known biases, stated here because the README quotes these buckets:
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -44,7 +45,12 @@ import yaml
 
 from ..corpus.diff import MIN_CHANGED_TOKENS, classify_pair
 from ..index.store import Store
-from ..retrieve.scope import GOVERNMENT_WIDE, PART_RESTRICTIONS, Scope
+from ..retrieve.scope import (
+    GOVERNMENT_WIDE,
+    PART_RESTRICTIONS,
+    Scope,
+    known_values,
+)
 
 _WORD = re.compile(r"[A-Za-z][A-Za-z\-]{2,}")
 _STOP = frozenset("""
@@ -55,6 +61,11 @@ each either neither both same only also more most less least very much many few 
 section paragraph subpart part chapter title
 """.split())
 MAX_QUERY_TERMS = 14
+#: A query below this many content terms cannot identify its own gold paragraph. Short
+#: amendments to short paragraphs leave almost no shared vocabulary, and 21 pairs degenerated
+#: to the section heading alone -- two items with different gold and a byte-identical query,
+#: graded against mutually exclusive answers. Those are broken items, not hard ones.
+MIN_QUERY_TERMS = 5
 #: Keep sampled dates clear of snapshot boundaries: eCFR dates a change to the snapshot in
 #: which the text first differs, which need not be the day the amendment took effect.
 BOUNDARY_MARGIN = timedelta(days=14)
@@ -76,6 +87,9 @@ class BenchItem:
     #: Retrieving one of these is the specific failure the bucket exists to detect.
     distractors: list[str] = field(default_factory=list)
     scope: Scope = GOVERNMENT_WIDE
+    #: "dev" or "test". Assigned by hashing the *section*, not the item: items from one
+    #: section are correlated, so an item-level split leaks the answer across the boundary.
+    split: str = "test"
     provenance: dict[str, str] = field(default_factory=dict)
 
     @property
@@ -113,6 +127,25 @@ def _iso(d: str) -> date:
     return date.fromisoformat(d)
 
 
+#: Share of sections held out. Split by section rather than by item because items from one
+#: section are strongly correlated -- two sides of the same amendment share a query, and one
+#: section supplies over a third of the temporal bucket. An item-level split would put the
+#: before-side in dev and the after-side in test and leak the answer across the boundary.
+TEST_SHARE = 0.5
+
+
+def assign_split(section_id: str, *, test_share: float = TEST_SHARE) -> str:
+    """Deterministic dev/test assignment, stable across runs and machines.
+
+    Hashed rather than seeded-random so the assignment does not move when the corpus grows:
+    a section keeps its side when new amendments are published, which is what makes a
+    reported test number comparable month to month.
+    """
+    digest = hashlib.sha256(section_id.encode("utf-8")).digest()
+    bucket = int.from_bytes(digest[:8], "big") / 2 ** 64
+    return "test" if bucket < test_share else "dev"
+
+
 def sample_date(valid_from: str, valid_to: str | None, *, horizon: str) -> str | None:
     """A date comfortably inside a validity interval, or None if there is no room."""
     start = _iso(valid_from) + BOUNDARY_MARGIN
@@ -136,12 +169,53 @@ def salient_terms(text: str, *, limit: int = MAX_QUERY_TERMS) -> list[str]:
     return out
 
 
-def shared_query(before: str, after: str, heading: str) -> str:
-    """A query from wording both versions share, so neither is favoured lexically."""
+def document_frequency(store: Store) -> dict[str, int]:
+    """How many believed chunks contain each content word.
+
+    Used to order shared terms by rarity. Computed once per mining run over ~13k chunks,
+    which costs well under a second and removes the need for any corpus-specific tuning.
+    """
+    df: dict[str, int] = {}
+    for (text,) in store.db.execute(
+            "SELECT text FROM chunk WHERE system_to IS NULL"):
+        for word in {w.lower() for w in _WORD.findall(text)}:
+            df[word] = df.get(word, 0) + 1
+    return df
+
+
+def shared_query(before: str, after: str, heading: str, *,
+                 df: dict[str, int] | None = None,
+                 limit: int = MAX_QUERY_TERMS) -> str:
+    """A query from wording both versions share, ordered so neither is favoured.
+
+    Term *selection* has to be symmetric, not just term *membership*. Taking the shared
+    vocabulary in the before text's document order was measurably biased: over 349 pairs
+    with the as-of predicate off, the before-side outranked the after-side **222 to 127**
+    (sign test p < 1e-6). Two mechanisms were at work -- the first ``limit`` terms were
+    whichever came first in the older paragraph, and BM25 length normalisation independently
+    favours the shorter pre-amendment text.
+
+    Ordering by rarity fixes the half this function controls: document frequency is a
+    property of the corpus, identical from either side, so the same terms are chosen no
+    matter which version is asked about. It also picks better terms, since the rarest shared
+    words are the ones that actually locate the section.
+    """
     b = {w.lower() for w in _WORD.findall(before)}
     a = {w.lower() for w in _WORD.findall(after)}
-    shared = " ".join(w for w in _WORD.findall(before) if w.lower() in b & a)
-    terms = salient_terms(shared)
+    shared = b & a
+
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for word in _WORD.findall(before) + _WORD.findall(after):
+        k = word.lower()
+        if k in shared and k not in _STOP and k not in seen and len(k) > 2:
+            seen.add(k)
+            candidates.append(word)
+
+    if df is not None:
+        # Rarest first; ties broken alphabetically so the order is total and reproducible.
+        candidates.sort(key=lambda w: (df.get(w.lower(), 0), w.lower()))
+    terms = candidates[:limit]
     return f"{heading}: {' '.join(terms)}" if terms else heading
 
 
@@ -193,8 +267,20 @@ def mine_temporal(store: Store, *, horizon: str,
     change on the same day. A paragraph and its counterpart in the neighbouring version are
     exactly that, and they are also the sharpest possible temporal contrast.
     """
+    df = document_frequency(store)
+    all_versions = load_versions(store)
     items: list[BenchItem] = []
-    for section_id, versions in load_versions(store).items():
+    discarded: dict[str, int] = {"short_query": 0, "no_counterpart": 0, "tiny_change": 0}
+
+    for section_id, versions in all_versions.items():
+        # Every other version of the same paragraph is equally wrong to cite, not just the
+        # adjacent one. 36 sections have three or more versions, so counting only the
+        # neighbour understated the wrong-version rate in the ablation.
+        by_anchor: dict[str, list[str]] = {}
+        for v in versions:
+            for anchor, (vid, _) in v.paragraphs.items():
+                by_anchor.setdefault(anchor, []).append(vid)
+
         for old, new in zip(versions, versions[1:], strict=False):
             _, _, section_changed = classify_pair(old.text, new.text)
             if section_changed < min_changed_tokens:
@@ -203,32 +289,77 @@ def mine_temporal(store: Store, *, horizon: str,
                 if anchor not in old.paragraphs or anchor not in new.paragraphs:
                     # A pure addition or deletion has no counterpart to confuse the retriever
                     # with, so it cannot test temporal discrimination.
+                    discarded["no_counterpart"] += 1
                     continue
                 old_id, old_text = old.paragraphs[anchor]
                 new_id, new_text = new.paragraphs[anchor]
                 kind, _, changed = classify_pair(old_text, new_text)
                 if changed < min_changed_tokens:
+                    discarded["tiny_change"] += 1
                     continue
-                query = shared_query(old_text, new_text, old.heading or new.heading)
-                for label, version, evidence, distractor in (
-                    ("before", old, old_id, new_id),
-                    ("after", new, new_id, old_id),
-                ):
+                query = shared_query(old_text, new_text, old.heading or new.heading, df=df)
+                if len(query.split(": ", 1)[-1].split()) < MIN_QUERY_TERMS:
+                    # Nothing distinctive survived the intersection, so the query cannot
+                    # identify its own gold. That is a broken item, not a hard one.
+                    discarded["short_query"] += 1
+                    continue
+                for label, version, evidence in (("before", old, old_id),
+                                                 ("after", new, new_id)):
                     as_of = sample_date(version.valid_from, version.valid_to,
                                         horizon=horizon)
                     if as_of is None:
                         continue
+                    others = [v for v in by_anchor.get(anchor, []) if v != evidence]
                     items.append(BenchItem(
                         id=f"{section_id}#{anchor}@{new.valid_from}:{label}",
                         bucket="temporal", query=query, as_of=as_of,
                         section_id=section_id, part=version.part, heading=version.heading,
-                        acceptable_evidence=[[evidence]], distractors=[distractor],
+                        acceptable_evidence=[[evidence]], distractors=others,
+                        split=assign_split(section_id),
                         provenance={"amended_on": new.valid_from, "side": label,
                                     "anchor": anchor, "change_kind": kind.value,
                                     "changed_tokens": str(changed),
                                     "valid_from": version.valid_from,
                                     "valid_to": version.valid_to or "open"}))
-    return sorted(items, key=lambda i: i.id)
+
+    kept = _drop_ambiguous(items, discarded)
+    LAST_TEMPORAL_DISCARDS.clear()
+    LAST_TEMPORAL_DISCARDS.update(discarded)
+    return sorted(kept, key=lambda i: i.id)
+
+
+#: Populated by the last ``mine_temporal`` call so the CLI can report the discard rate.
+#: A benchmark that silently drops source material is making a representativeness claim it
+#: has not earned, which is the same standard the corpus differ is already held to.
+LAST_TEMPORAL_DISCARDS: dict[str, int] = {}
+
+
+def _drop_ambiguous(items: list[BenchItem], discarded: dict[str, int]) -> list[BenchItem]:
+    """Remove items whose ``(query, as_of)`` is shared with a different gold.
+
+    Retrieval is deterministic, so two such items receive a byte-identical ranked list and
+    are graded against mutually exclusive answers. At least one of them must fail however
+    good the system is, which puts a floor under the bucket that no configuration can beat.
+    """
+    by_key: dict[tuple[str, str], set[str]] = {}
+    for item in items:
+        by_key.setdefault((item.query, item.as_of), set()).update(item.all_evidence)
+
+    kept: list[BenchItem] = []
+    emitted: set[tuple[str, str]] = set()
+    for item in items:
+        key = (item.query, item.as_of)
+        if len(by_key[key]) > 1:
+            discarded["ambiguous"] = discarded.get("ambiguous", 0) + 1
+            continue
+        if key in emitted:
+            # Same query, same date, same gold: a duplicate trial, not a second question.
+            # Keeping it double-counts one measurement and tightens the interval for free.
+            discarded["duplicate"] = discarded.get("duplicate", 0) + 1
+            continue
+        emitted.add(key)
+        kept.append(item)
+    return kept
 
 
 # -- scope ------------------------------------------------------------------------
@@ -277,7 +408,7 @@ def mine_scope(store: Store, *, horizon: str, per_part: int = 12) -> list[BenchI
             id=f"{version.section_id}:scope-in", bucket="scope", query=query, as_of=as_of,
             section_id=version.section_id, part=version.part, heading=version.heading,
             acceptable_evidence=[[version_id]], distractors=[],
-            scope=Scope.of(**{facet: governed}),
+            scope=Scope.of(**{facet: governed}), split=assign_split(version.section_id),
             provenance={"facet": facet, "value": governed, "direction": "governs"}))
         items.append(BenchItem(
             id=f"{version.section_id}:scope-out", bucket="scope-exclusion", query=query,
@@ -285,18 +416,19 @@ def mine_scope(store: Store, *, horizon: str, per_part: int = 12) -> list[BenchI
             heading=version.heading,
             acceptable_evidence=[[]],   # nothing needs retrieving; absence is the answer
             distractors=[version_id],
-            scope=Scope.of(**{facet: outside}),
+            scope=Scope.of(**{facet: outside}), split=assign_split(version.section_id),
             provenance={"facet": facet, "value": outside, "direction": "does not govern"}))
     return sorted(items, key=lambda i: i.id)
 
 
 def _contrasting_value(facet: str, allowed: frozenset[str]) -> str | None:
-    """A real value of the same facet that this part does not govern."""
-    universe: set[str] = set()
-    for restriction in PART_RESTRICTIONS.values():
-        if facet in restriction:
-            universe |= restriction[facet]
-    outside = sorted(universe - allowed)
+    """A real value of the same facet that this part does not govern.
+
+    Drawn from the facet's declared vocabulary, not from the parts. All three
+    service-restricted parts govern ``competitive``, so a parts-derived universe had one
+    value, no contrast existed, and every ``service`` item was silently skipped.
+    """
+    outside = sorted(known_values(facet) - allowed)
     return outside[0] if outside else None
 
 
@@ -325,7 +457,7 @@ def mine_generated(store: Store, *, horizon: str, stride: int = 9,
             id=f"{version.section_id}#{anchor}:gen", bucket="generated",
             query=f"{version.heading}: {' '.join(terms)}", as_of=horizon,
             section_id=version.section_id, part=version.part, heading=version.heading,
-            acceptable_evidence=[[version_id]],
+            acceptable_evidence=[[version_id]], split=assign_split(version.section_id),
             provenance={"source": "paragraph-derived"}))
     return items
 
@@ -360,6 +492,7 @@ def load_human(path: Path, store: Store, *, horizon: str) -> list[BenchItem]:
             part=entry.get("part", ""), heading=entry.get("heading", ""),
             acceptable_evidence=sets,
             scope=Scope.of(**entry.get("scope", {})),
+            split=assign_split(entry["evidence"][0][0].split("#")[0]),
             provenance={"source": "hand-written"}))
     return items
 
@@ -374,10 +507,19 @@ def _resolve(store: Store, ref: str, as_of: str) -> str | None:
 
 def mine_all(store: Store, *, horizon: str, human_path: Path | None = None
              ) -> dict[str, list[BenchItem]]:
+    """The scored buckets.
+
+    ``generated`` is deliberately absent. Its queries were built from the paragraph they
+    retrieve, so 100% of their tokens appeared verbatim in the indexed text and the bucket
+    scored 100.0% -- and 97.7% at k=1. Nothing in the plausible configuration space could
+    lose a point, so it could not discriminate, could not regress, and could not inform a
+    decision. A constant is not a weak metric; it is not a metric. It survives as
+    ``mine_generated`` and is asserted as a corpus reachability gate in tests/invariants,
+    which is what it always actually was.
+    """
     buckets: dict[str, list[BenchItem]] = {}
     for item in (mine_temporal(store, horizon=horizon)
                  + mine_scope(store, horizon=horizon)
-                 + mine_generated(store, horizon=horizon)
                  + (load_human(human_path, store, horizon=horizon) if human_path else [])):
         buckets.setdefault(item.bucket, []).append(item)
     return buckets

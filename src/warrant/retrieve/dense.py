@@ -21,6 +21,7 @@ rather than served.
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -56,6 +57,7 @@ class DenseIndex:
         np.save(path.with_suffix(".ids.npy"), self.ids)
         path.with_suffix(".meta.json").write_text(
             json.dumps({"model": self.model, "config_hash": self.config_hash,
+                        "revision": self.revision,
                         "n": int(self.ids.size), "dim": int(self.vectors.shape[1])}),
             encoding="utf-8",
         )
@@ -79,6 +81,7 @@ class DenseIndex:
             vectors=np.load(path.with_suffix(".vectors.npy"), allow_pickle=False),
             model=meta["model"],
             config_hash=meta["config_hash"],
+            revision=meta.get("revision"),
         )
         if index.ids.size != index.vectors.shape[0]:
             raise ModelMismatch(
@@ -92,6 +95,8 @@ class DenseIndex:
 
     # -- querying ----------------------------------------------------------------
 
+    revision: str | None = None
+
     def encode(self, text: str) -> np.ndarray:
         """Embed a query with the encoder this index was built by.
 
@@ -99,7 +104,7 @@ class DenseIndex:
         embedded by a different model than the vectors is a silent quality regression --
         the scores stay finite and plausible and the ranking is noise.
         """
-        return encode_query(text, model_name=self.model)
+        return encode_query(text, model_name=self.model, revision=self.revision)
 
     def search(self, query_vector: np.ndarray, *, allowed: set[int] | None,
                limit: int) -> list[tuple[int, float]]:
@@ -136,28 +141,40 @@ class DenseIndex:
 #: Encoders are cached per process. Constructing a SentenceTransformer costs seconds and
 #: several hundred MB; doing it per query turned a millisecond retrieval into the dominant
 #: cost of the whole evaluation, which is the kind of thing a latency budget exists to catch.
-_ENCODERS: dict[str, object] = {}
+_ENCODERS: dict[tuple[str, str | None], object] = {}
+_ENCODER_LOCK = threading.Lock()
 
 
-def _encoder(model_name: str):
-    from sentence_transformers import SentenceTransformer  # imported lazily: ~2 GB of torch
+def _encoder(model_name: str, revision: str | None = None):
+    """The encoder, built once per (model, revision) and reused.
 
-    if model_name not in _ENCODERS:
-        _ENCODERS[model_name] = SentenceTransformer(model_name)
-    return _ENCODERS[model_name]
+    ``revision`` pins a HuggingFace commit. Unpinned, a bare repo name resolves to whatever
+    ``main`` is on the day of the run, so a published retrieval number silently depends on a
+    repository nobody here controls. Loading is also guarded: check-then-set from a
+    threadpool let two cold requests each build a ~130 MB encoder.
+    """
+    key = (model_name, revision)
+    with _ENCODER_LOCK:
+        if key not in _ENCODERS:
+            from sentence_transformers import SentenceTransformer  # lazily: ~2 GB of torch
+
+            _ENCODERS[key] = SentenceTransformer(model_name, revision=revision)
+        return _ENCODERS[key]
 
 
 @lru_cache(maxsize=4096)
-def encode_query(text: str, *, model_name: str = DEFAULT_MODEL) -> np.ndarray:
+def encode_query(text: str, *, model_name: str = DEFAULT_MODEL,
+                 revision: str | None = None) -> np.ndarray:
     """Encode one query. Bounded cache: repeated queries are common in a benchmark sweep,
     and an unbounded one keyed on user input is a memory-exhaustion vector."""
-    vec = _encoder(model_name).encode([QUERY_INSTRUCTION + text],
+    vec = _encoder(model_name, revision).encode([QUERY_INSTRUCTION + text],
                                       normalize_embeddings=True)[0]
     return np.asarray(vec, dtype=np.float32)
 
 
 def build(store: Store, *, model_name: str = DEFAULT_MODEL, config_hash: str = "",
-          batch_size: int = 32, progress: bool = False) -> DenseIndex:
+          batch_size: int = 32, progress: bool = False,
+          revision: str | None = None) -> DenseIndex:
     """Embed every believed chunk in the store.
 
     Every believed chunk, including superseded versions: the store is bitemporal, and an
@@ -173,7 +190,7 @@ def build(store: Store, *, model_name: str = DEFAULT_MODEL, config_hash: str = "
     # itself -- a paragraph reading "(b) The period may be extended once." is unretrievable
     # without it.
     texts = [f"{r['heading']}. {r['text']}" if r["heading"] else r["text"] for r in rows]
-    vectors = _encoder(model_name).encode(
+    vectors = _encoder(model_name, revision).encode(
         texts, batch_size=batch_size, normalize_embeddings=True,
         show_progress_bar=progress, convert_to_numpy=True,
     )
@@ -182,4 +199,5 @@ def build(store: Store, *, model_name: str = DEFAULT_MODEL, config_hash: str = "
         vectors=np.asarray(vectors, dtype=np.float32),
         model=model_name,
         config_hash=config_hash,
+        revision=revision,
     )

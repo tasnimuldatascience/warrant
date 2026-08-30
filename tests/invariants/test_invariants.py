@@ -222,3 +222,31 @@ def test_chunking_captures_almost_all_of_each_section():
     assert coverage >= CORPUS_COVERAGE_FLOOR, (
         f"chunker captured {coverage:.1%} of section body text "
         f"({missing:,} words dropped); floor is {CORPUS_COVERAGE_FLOOR:.0%}")
+
+
+# -- 7. every in-force paragraph is reachable by its own words --------------------
+
+
+def test_corpus_is_reachable(corpus: Store):
+    """What the `generated` benchmark bucket actually measured.
+
+    It scored 100.0% and 97.7% at k=1, because its queries were built from the paragraph
+    they retrieve. No configuration could lose a point, so it could not discriminate and
+    could not regress -- it was a reachability assertion wearing a benchmark's clothes.
+    Asserted here instead, where a constant is the correct shape for the claim.
+    """
+    from warrant.config import Config
+    from warrant.eval.bench import mine_generated
+
+    cfg = Config.load()
+    items = mine_generated(corpus, horizon="2026-08-26")
+    if not items:
+        pytest.skip("no in-force paragraphs sampled")
+    r = Retriever(store=corpus, candidates_lexical=cfg.retrieve.candidates_lexical,
+                  rerank_top_k=cfg.retrieve.rerank_top_k, final_k=cfg.retrieve.final_k,
+                  parts_universe=cfg.corpus.parts)
+    missed = [i.id for i in items
+              if not i.is_satisfied_by(r.retrieve(i.query, as_of=i.as_of).final)]
+    assert not missed, (
+        f"{len(missed)} of {len(items)} in-force paragraphs are unreachable by their own "
+        f"salient terms, e.g. {missed[:3]}")

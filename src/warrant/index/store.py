@@ -210,8 +210,32 @@ class Store:
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
-        with self.db:
-            yield self.db
+        """A transaction that nests.
+
+        sqlite3 connection context managers do not nest: an inner ``with connection`` block
+        commits the *outer* transaction when it exits. So a caller wrapping several writes to
+        make them atomic got no atomicity at all, because ``add`` and ``close_valid`` each
+        open their own. Ingest hit exactly that -- a crash between closing a section and
+        inserting its replacement left the store believing the law had simply been repealed,
+        with the one-version-in-force invariant still passing, because zero is not two.
+
+        Depth is tracked per thread, alongside the connection, so a nested call joins the
+        outer transaction instead of ending it.
+        """
+        depth = getattr(self._local, "depth", 0)
+        if depth:
+            self._local.depth = depth + 1
+            try:
+                yield self.db
+            finally:
+                self._local.depth -= 1
+            return
+        self._local.depth = 1
+        try:
+            with self.db as conn:
+                yield conn
+        finally:
+            self._local.depth = 0
 
     # -- writing -----------------------------------------------------------------
 

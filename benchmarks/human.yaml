@@ -186,3 +186,84 @@
   query: How is a regular wage schedule structured for wage grade employees?
   evidence: [["532.203#a"]]
   scope: {pay_system: FWS}
+
+# --- dated questions ------------------------------------------------------------
+#
+# Every item above resolves to the corpus horizon, which meant that in a system whose whole
+# thesis is dating correctness, the bucket characterising realistic queries asked nothing
+# dated. These carry an explicit `as_of` on the before-side of a real amendment, so the
+# correct answer is a version that is no longer in force.
+
+- id: probation-notify-2021
+  query: When must my agency tell my supervisor that my probationary period is ending?
+  as_of: "2021-06-01"
+  evidence: [["315.803#a"]]
+
+- id: probation-notify-2018
+  query: When must my agency tell my supervisor that my probationary period is ending?
+  as_of: "2018-06-01"
+  evidence: [["315.803#a"]]
+
+- id: military-spouse-eligibility-2019
+  query: Which military spouses can be appointed noncompetitively?
+  as_of: "2019-06-01"
+  evidence: [["315.612#c"]]
+
+- id: military-spouse-eligibility-2025
+  query: Which military spouses can be appointed noncompetitively?
+  as_of: "2025-06-01"
+  evidence: [["315.612#c"]]
+
+- id: unacceptable-excluded-2019
+  query: Which actions are excluded from the unacceptable performance rules?
+  as_of: "2019-06-01"
+  evidence: [["432.102#b"]]
+
+- id: unacceptable-excluded-2025
+  query: Which actions are excluded from the unacceptable performance rules?
+  as_of: "2025-06-01"
+  evidence: [["432.102#b"]]
+
+- id: ctap-exception-short-appointment-2019
+  query: Can my agency make a short appointment despite CTAP selection priority?
+  as_of: "2019-06-01"
+  evidence: [["330.609#c"]]
+
+- id: ctap-exception-demote-2023
+  query: Does CTAP priority stop my agency demoting someone under part 432?
+  as_of: "2023-06-01"
+  evidence: [["330.609#b"]]
+
+# --- answers buried below the first paragraph -----------------------------------
+#
+# Every item above had its gold at anchor #a. That is a selection artifact: it avoids the
+# common case the corpus length distribution says is normal -- the answer sitting in
+# (b)(1)(iii) of a long section.
+
+- id: career-tenure-creditable-service
+  query: What service counts toward the three years needed for career tenure?
+  evidence: [["315.201#b"]]
+
+- id: career-tenure-competitive-status
+  query: Do I need competitive status to attain career tenure?
+  evidence: [["315.201#b-2"]]
+
+# §315.803 was repealed on 2025-06-24, so this one carries a date. The loader refused it
+# without one, which is the behaviour that keeps a benchmark's ground truth honest: evidence
+# that no longer resolves is a broken item, not a hard question.
+- id: probation-termination-notice
+  query: What must an agency tell someone it terminates during probation?
+  as_of: "2023-06-01"
+  evidence: [["315.803#b"]]
+
+- id: unacceptable-agencies-covered
+  query: Which agencies do the unacceptable performance rules apply to?
+  evidence: [["432.102#c"]]
+
+- id: rif-restored-leave-fulltime
+  query: How much excess annual leave may a full-time employee schedule and use?
+  evidence: [["630.306#b-1"]]
+
+- id: rif-restored-leave-parttime
+  query: How much excess annual leave applies to a part-time employee?
+  evidence: [["630.306#b-2"]]

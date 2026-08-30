@@ -24,14 +24,21 @@ jobs:
       - name: Install
         # No neural extra: torch is ~2GB and the whole P0 story -- ingest, apparatus
         # stripping, bitemporal store, lexical retrieval, amendment benchmark, failure
-        # budget -- is testable without it.
+        # budget -- is testable without it. `serve` is not optional here despite being an
+        # extra: fastapi lives in it, so without it tests/test_api.py cannot even be
+        # collected, and the API suite reported green by never running.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,serve]"
       - name: Lint
         run: ruff check src tests
       - name: Test
-        run: pytest -q --cov=warrant --cov-report=term-missing
+        # --cov=src/warrant, not --cov=warrant. The package-name form measures only modules
+        # the tests happen to import, so every module at 0% is missing from the denominator
+        # rather than counted against it: generate/model, eval/{run,stats,generation} and
+        # observe/* vanished, and the run reported 82% where measuring the source tree
+        # reports 59%. Before this commit the same gap read 80% against a true 58%.
+        run: pytest -q --cov=src/warrant --cov-report=term-missing
 
   invariants:
     # The deterministic correctness gates from ARCHITECTURE.md section 9. Separated from the

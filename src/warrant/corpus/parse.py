@@ -22,6 +22,32 @@ from lxml import etree
 
 from .apparatus import APPARATUS_TAGS, strip_apparatus, text_of
 
+
+class CorpusParseError(ValueError):
+    """A snapshot could not be parsed, with the file -- and where possible the section.
+
+    An XMLSyntaxError from lxml names a line and column in a string nobody can find again.
+    A build over 26 parts and 200 snapshots aborting on one of them has to say which one, or
+    the only way to locate it is to bisect the cache by hand.
+    """
+
+
+def _parser() -> etree.XMLParser:
+    """The parse settings, stated rather than inherited.
+
+    ``resolve_entities=False`` is the load-bearing one. eCFR XML uses only the predefined
+    entities and numeric character references, both of which still work; what it stops is an
+    external or internal entity definition being expanded, which is both the XXE read
+    primitive and the billion-laughs amplifier. ``no_network`` and ``huge_tree`` happen to
+    match libxml2's current defaults, and are set anyway: a security property that holds
+    because of another project's default is a property this code does not have.
+
+    Built per call. lxml parsers carry state and are not safe to share across threads, and
+    the construction cost is nothing against parsing a megabyte of XML.
+    """
+    return etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)
+
+
 #: Leading paragraph designator: (a), (a)(1), (b)(2)(i) ...
 _LABEL = re.compile(r"^\s*\(([a-zA-Z0-9]{1,4})\)((?:\s*\([a-zA-Z0-9]{1,4}\))*)")
 _WS = re.compile(r"\s+")
@@ -224,9 +250,23 @@ def _subpart_of(node: etree._Element) -> str | None:
     return None
 
 
-def parse_sections(xml: bytes) -> list[Section]:
-    """Every section in a part snapshot, apparatus already removed."""
-    root = etree.fromstring(xml)
+def parse_sections(xml: bytes, *, source: str | None = None) -> list[Section]:
+    """Every section in a part snapshot, apparatus already removed.
+
+    ``source`` names the snapshot in any error raised -- pass the cache filename or the
+    title/part/date. Ingestion walks 26 parts and 200 snapshots, so a failure that does not
+    name its input is a failure nobody can reproduce.
+    """
+    where = source or f"<{len(xml)} bytes of XML>"
+    if not xml.strip():
+        raise CorpusParseError(f"{where}: empty snapshot, nothing to parse")
+    try:
+        root = etree.fromstring(xml, _parser())
+    except etree.XMLSyntaxError as exc:
+        raise CorpusParseError(f"{where}: not well-formed XML ({exc})") from exc
+    if root is None:
+        raise CorpusParseError(f"{where}: no document element")
+
     sections: list[Section] = []
     for div in root.iter("DIV8"):
         if div.get("TYPE") != "SECTION":
@@ -234,21 +274,25 @@ def parse_sections(xml: bytes) -> list[Section]:
         ident = (div.get("N") or "").strip()
         if not ident:
             continue
-        head_el = div.find("HEAD")
-        heading = ""
-        if head_el is not None:
-            heading = _HEAD_NUM.sub("", _WS.sub(" ", "".join(head_el.itertext())).strip())
-        sections.append(
-            Section(
-                identifier=ident,
-                heading=heading.strip(" .§"),
-                text=text_of(div),
-                paragraphs=_paragraphs(div),
-                subpart=_subpart_of(div),
+        try:
+            head_el = div.find("HEAD")
+            heading = ""
+            if head_el is not None:
+                heading = _HEAD_NUM.sub("", _WS.sub(" ", "".join(head_el.itertext())).strip())
+            sections.append(
+                Section(
+                    identifier=ident,
+                    heading=heading.strip(" .§"),
+                    text=text_of(div),
+                    paragraphs=_paragraphs(div),
+                    subpart=_subpart_of(div),
+                )
             )
-        )
+        except (etree.LxmlError, ValueError) as exc:
+            raise CorpusParseError(f"{where}: section {ident} could not be read "
+                                   f"({type(exc).__name__}: {exc})") from exc
     return sections
 
 
-def section_index(xml: bytes) -> dict[str, Section]:
-    return {s.identifier: s for s in parse_sections(xml)}
+def section_index(xml: bytes, *, source: str | None = None) -> dict[str, Section]:
+    return {s.identifier: s for s in parse_sections(xml, source=source)}
