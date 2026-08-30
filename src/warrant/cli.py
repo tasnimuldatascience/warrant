@@ -309,6 +309,44 @@ def corpus_ingest(
         console.print(f"  ... and {stats.documents_failed - 10} more")
     console.print(f"[bold]{stats.units_inserted}[/bold] units added at authority "
                   f"{src.authority} ({AUTHORITY_NAMES[src.authority]})")
+    _report_reachability(cfg, src.name)
+
+
+def _report_reachability(cfg: Config, source: str) -> None:
+    """Say how much of a source a dated query can actually see.
+
+    This exists because the failure it catches is silent. The US Code source stamped
+    ``valid_from`` with the OLRC *edition* date -- 2026-07-12 -- so 5 U.S.C. 6304, in force
+    since 1966, was admitted by exactly no query in the 2017-2026 corpus window. The ingest
+    reported 38 units and success. Retrieval returned nothing, which is indistinguishable
+    from a question with no statutory answer.
+
+    So the check is not "did rows land" but "can the corpus reach them", asked at the
+    history floor and at the latest date the store knows about. A source visible at neither
+    is a bug however many rows it wrote.
+    """
+    floor = cfg.corpus.history_floor
+    with Store(cfg.store_path) as store:
+        latest = store.db.execute(
+            "SELECT MAX(valid_from) FROM chunk WHERE system_to IS NULL").fetchone()[0]
+        total = store.db.execute(
+            "SELECT COUNT(*) FROM chunk WHERE source = ? AND system_to IS NULL",
+            (source,)).fetchone()[0]
+        if not total:
+            return
+        seen = {}
+        for label, date in (("floor " + floor, floor), ("latest " + str(latest), latest)):
+            seen[label] = len(store.candidate_ids(valid_date=date, sources=[source]))
+
+    for label, n in seen.items():
+        pct = 100.0 * n / total
+        colour = "red" if n == 0 else ("yellow" if pct < 50 else "green")
+        console.print(f"  reachable at {label}: [{colour}]{n:,}/{total:,} ({pct:.0f}%)[/{colour}]")
+    if not any(seen.values()):
+        console.print(
+            f"[red]no dated query can reach {source}.[/red] Its valid_from is later than "
+            "every date in the corpus, so the as-of predicate excludes all of it. Rows "
+            "landing is not the same as a corpus being able to see them.")
 
 
 @corpus_app.command("diff")
