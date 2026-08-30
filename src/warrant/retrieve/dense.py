@@ -42,6 +42,27 @@ class ModelMismatch(RuntimeError):
     """The index on disk was built by a different encoder than the one being queried."""
 
 
+def retrieval_text(row) -> str:
+    """The one string every ranking stage sees for a chunk.
+
+    Context first, then the paragraph. This function exists so there is exactly one answer to
+    "what text represents this chunk": the section heading used to be prepended here, inside
+    the encoder, and nowhere else -- so BM25 matched the bare paragraph, the vectors encoded
+    heading-plus-paragraph, and the cross-encoder scored a third variant. Three stages ranking
+    three different strings for one row, with no measurement able to see it.
+
+    It matters most for the short paragraphs, which are most of the corpus: 48.2% of in-force
+    chunks are under 30 tokens, and "(c) The agency continues its own recruiting efforts."
+    carries almost no retrievable signal without the section it sits in.
+    """
+    context = (row["context"] or "").strip() if "context" in row.keys() else ""
+    if not context:
+        heading = (row["heading"] or "").strip() if "heading" in row.keys() else ""
+        context = heading
+    text = row["text"]
+    return f"{context}\n{text}" if context else text
+
+
 @dataclass
 class DenseIndex:
     ids: np.ndarray            # store row ids, parallel to `vectors`
@@ -181,15 +202,12 @@ def build(store: Store, *, model_name: str = DEFAULT_MODEL, config_hash: str = "
     index that held only currently-in-force text could not answer a dated question at all.
     """
     rows = store.db.execute(
-        "SELECT id, heading, text FROM chunk WHERE system_to IS NULL ORDER BY id"
+        "SELECT id, heading, context, text FROM chunk WHERE system_to IS NULL ORDER BY id"
     ).fetchall()
     if not rows:
         return DenseIndex(np.empty(0, dtype=np.int64), np.empty((0, 384), dtype=np.float32),
                           model_name, config_hash)
-    # The heading carries the subject of the section and is often absent from the paragraph
-    # itself -- a paragraph reading "(b) The period may be extended once." is unretrievable
-    # without it.
-    texts = [f"{r['heading']}. {r['text']}" if r["heading"] else r["text"] for r in rows]
+    texts = [retrieval_text(r) for r in rows]
     vectors = _encoder(model_name, revision).encode(
         texts, batch_size=batch_size, normalize_embeddings=True,
         show_progress_bar=progress, convert_to_numpy=True,

@@ -42,7 +42,7 @@ class SchemaMismatch(RuntimeError):
 #: much later inside a query with "no such column", naming neither the cause nor the cure.
 #: Worse are the silent drifts -- an edited FTS tokenizer or trigger body is simply never
 #: applied to an existing store, and the only symptom is a few points of retrieval quality.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 PRAGMA journal_mode = WAL;
@@ -73,6 +73,17 @@ CREATE TABLE IF NOT EXISTS chunk (
     kind            TEXT    NOT NULL DEFAULT 'prose',
     locator         TEXT    NOT NULL DEFAULT '',
 
+    -- Resolved context: the subpart and section headings, and any chapeau this paragraph
+    -- hangs off. Stored rather than prepended at embed time, because it was previously added
+    -- only inside the dense encoder -- so BM25, the vector index and the cross-encoder each
+    -- ranked a different string for the same chunk, and no measurement could see the gap.
+    -- 48.2% of in-force chunks are under 30 tokens and 9.6% under ten; "(c) The agency
+    -- continues its own recruiting efforts." is not retrievable on its own words.
+    context         TEXT    NOT NULL DEFAULT '',
+    -- The larger unit to hand a generator when this one is retrieved. Small-to-big: rank on
+    -- the precise paragraph, answer from the section that gives it meaning.
+    parent_id       TEXT    NOT NULL DEFAULT '',
+
     -- CFR-shaped fields. Non-CFR sources set section_id = doc_id so that every grouping,
     -- clustering and invariant keyed on section_id keeps working unchanged across sources.
     section_id      TEXT    NOT NULL,   -- 630.1203
@@ -102,17 +113,17 @@ CREATE INDEX IF NOT EXISTS chunk_source ON chunk (source, authority);
 CREATE INDEX IF NOT EXISTS chunk_doc    ON chunk (doc_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(
-    text, heading, version_id UNINDEXED,
+    text, heading, context, version_id UNINDEXED,
     content='chunk', content_rowid='id', tokenize='porter unicode61'
 );
 
 CREATE TRIGGER IF NOT EXISTS chunk_ai AFTER INSERT ON chunk BEGIN
-    INSERT INTO chunk_fts(rowid, text, heading, version_id)
-    VALUES (new.id, new.text, new.heading, new.version_id);
+    INSERT INTO chunk_fts(rowid, text, heading, context, version_id)
+    VALUES (new.id, new.text, new.heading, new.context, new.version_id);
 END;
 CREATE TRIGGER IF NOT EXISTS chunk_ad AFTER DELETE ON chunk BEGIN
-    INSERT INTO chunk_fts(chunk_fts, rowid, text, heading, version_id)
-    VALUES ('delete', old.id, old.text, old.heading, old.version_id);
+    INSERT INTO chunk_fts(chunk_fts, rowid, text, heading, context, version_id)
+    VALUES ('delete', old.id, old.text, old.heading, old.context, old.version_id);
 END;
 """
 
@@ -153,10 +164,25 @@ class Chunk:
     authority: int = 2
     kind: str = "prose"
     locator: str = ""
+    context: str = ""
+    parent_id: str = ""
     valid_from: str = "1970-01-01"
     valid_to: str | None = OPEN
     source_snapshot: str = ""
     config_hash: str = ""
+
+    @property
+    def retrieval_text(self) -> str:
+        """What every ranking stage should see: context first, then the paragraph.
+
+        One string, computed once. The alternative -- each stage prepending its own prefix --
+        is what this codebase actually did: the section heading was added inside the dense
+        encoder only, so BM25, the vector index and the cross-encoder each ranked a different
+        string for the same chunk, and no measurement could see the gap.
+        """
+        if not self.context:
+            return self.text
+        return f"{self.context.rstrip()}\n{self.text}"
 
     @property
     def version_id(self) -> str:
@@ -176,8 +202,13 @@ class Store:
     a local file and is correct for writes as well as reads.
 
     An in-memory store is the exception: each connection to ``:memory:`` is its own empty
-    database, so a thread-local one would silently see nothing. Tests are single-threaded, so
-    that connection is shared deliberately.
+    database, so a thread-local one would silently see nothing. That one connection is shared
+    across threads on purpose, and it is the only place ``check_same_thread=False`` is
+    correct: there is no second connection it could hide, and CPython's sqlite3 is built in
+    SERIALIZED mode (``sqlite3.threadsafety == 3``), which serialises concurrent use of one
+    connection internally. Retrieval now fans lexical and dense out across two threads, so
+    "tests are single-threaded" -- which is what this comment used to say -- stopped being
+    true the moment that landed.
     """
 
     def __init__(self, path: str | Path):
@@ -187,11 +218,19 @@ class Store:
             self.path.parent.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
         self._shared: sqlite3.Connection | None = None
+        #: Bumped on every write. ``candidate_ids`` caches against it, so a cached admitted
+        #: set cannot outlive the rows it was computed from. It counts writes made through
+        #: *this* Store; a second process writing the same file would not bump it, which is
+        #: the same assumption the dense index already makes (it is built offline and loaded
+        #: once), and the serving path opens the store read-only.
+        self._generation = 0
+        self._admits: dict[tuple, tuple[int, set[int]]] = {}
         if self._memory:
             self._shared = self._connect()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.path) if not self._memory else ":memory:")
+        conn = sqlite3.connect(str(self.path) if not self._memory else ":memory:",
+                               check_same_thread=not self._memory)
         conn.row_factory = sqlite3.Row
         existing = conn.execute("PRAGMA user_version").fetchone()[0]
         has_rows = conn.execute(
@@ -269,7 +308,8 @@ class Store:
         ts = system_from or now()
         rows = [
             (c.version_id, c.chunk_id, c.source, c.doc_id or c.section_id, c.authority,
-             c.kind, c.locator, c.section_id, c.title, c.part, c.subpart, c.anchor,
+             c.kind, c.locator, c.context, c.parent_id,
+             c.section_id, c.title, c.part, c.subpart, c.anchor,
              c.heading, c.text, content_hash(c.text), c.valid_from, c.valid_to, ts, None,
              c.source_snapshot, c.config_hash)
             for c in chunks
@@ -277,12 +317,13 @@ class Store:
         with self.tx() as db:
             db.executemany(
                 "INSERT INTO chunk (version_id, chunk_id, source, doc_id, authority, kind, "
-                "locator, section_id, title, part, subpart, anchor, heading, text, "
-                "content_hash, valid_from, valid_to, system_from, system_to, "
+                "locator, context, parent_id, section_id, title, part, subpart, anchor, "
+                "heading, text, content_hash, valid_from, valid_to, system_from, system_to, "
                 "source_snapshot, config_hash) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 rows,
             )
+        self._generation += 1
         return len(rows)
 
     def close_valid(self, section_id: str, valid_to: str) -> int:
@@ -302,6 +343,7 @@ class Store:
                 "AND valid_from < ?",
                 (valid_to, section_id, valid_to),
             )
+        self._generation += 1
         return cur.rowcount
 
     def is_empty(self) -> bool:
@@ -324,6 +366,7 @@ class Store:
                 "UPDATE chunk SET system_to = ? WHERE version_id = ? AND system_to IS NULL",
                 (ts, version_id),
             )
+        self._generation += 1
         return cur.rowcount
 
     # -- reading -----------------------------------------------------------------
@@ -400,6 +443,19 @@ class Store:
         the candidate set is narrowed first -- rather than filtering a ranked list afterwards.
         """
         sys_t = system_time or now()
+        # Cached, because this is the same answer for every query asked at the same as-of
+        # date and it is not cheap: 9.7ms of a 31.1ms p50 budget, spent rebuilding an
+        # identical 9,961-element set. The key deliberately holds ``system_time`` as passed
+        # rather than as resolved -- a live request (None) and a replay pinned to a
+        # timestamp are different questions and must not share an entry, and a live request
+        # is only cacheable at all because ``_generation`` invalidates it the moment
+        # anything is written. Wall clock alone never changes the answer: ``system_to`` is
+        # only ever set by a write, which bumps the generation.
+        key = (valid_date, system_time, temporal, tuple(exclude_parts))
+        cached = self._admits.get(key)
+        if cached is not None and cached[0] == self._generation:
+            return cached[1]
+
         valid_clause = ("AND valid_from <= :v AND (valid_to IS NULL OR valid_to > :v) "
                         if temporal else "")
         params: dict[str, object] = {"v": valid_date, "s": sys_t}
@@ -410,7 +466,11 @@ class Store:
             f"{valid_clause}{excl}",
             params,
         ).fetchall()
-        return {r["id"] for r in rows}
+        admitted = {r["id"] for r in rows}
+        if len(self._admits) >= 64:
+            self._admits.clear()
+        self._admits[key] = (self._generation, admitted)
+        return admitted
 
     def rows_by_id(self, ids: Sequence[int]) -> dict[int, sqlite3.Row]:
         if not ids:

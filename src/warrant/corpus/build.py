@@ -29,6 +29,7 @@ import logging
 from dataclasses import dataclass, field
 
 from ..index.store import Chunk, Store
+from .chunking import DEFAULT_POLICY, ChunkPolicy, units
 from .ecfr import ECFRClient
 from .parse import Section, parse_sections
 
@@ -59,30 +60,33 @@ class BuildStats:
 
 
 def section_chunks(section: Section, *, title: int, part: str, valid_from: str,
-                   snapshot: str, config_hash: str) -> list[Chunk]:
-    """Paragraph-level chunks for one section version.
+                   snapshot: str, config_hash: str,
+                   policy: ChunkPolicy = DEFAULT_POLICY) -> list[Chunk]:
+    """Chunks for one section version, under a chunking policy.
+
+    Ingestion decides *when* a version exists; ``warrant.corpus.chunking`` decides what a
+    retrievable unit is. This function is the seam, and it is the only place the two meet:
+    pass ``ChunkPolicy.legacy()`` and the store is byte-identical to the one built before
+    contextual augmentation existed, which is what makes the two measurable against each
+    other rather than merely describable.
 
     A section with no parsed paragraphs still yields one chunk carrying the whole section
     text; dropping it would make the section unretrievable, which is a silent corpus hole
     of exactly the kind the ingestion row of the failure budget is meant to expose.
     """
-    paragraphs = section.paragraphs or []
-    if not paragraphs:
-        return [Chunk(chunk_id=f"{section.identifier}#full", section_id=section.identifier,
-                      title=title, part=part, subpart=section.subpart, anchor=None,
-                      heading=section.heading, text=section.text, valid_from=valid_from,
-                      source_snapshot=snapshot, config_hash=config_hash)]
     return [
-        Chunk(chunk_id=f"{section.identifier}#{p.anchor}", section_id=section.identifier,
-              title=title, part=part, subpart=section.subpart, anchor=p.anchor,
-              heading=section.heading, text=p.text, valid_from=valid_from,
-              source_snapshot=snapshot, config_hash=config_hash)
-        for p in paragraphs
+        Chunk(chunk_id=f"{section.identifier}#{u.anchor or 'full'}",
+              section_id=section.identifier, title=title, part=part,
+              subpart=section.subpart, anchor=u.anchor, heading=section.heading,
+              text=u.text, context=u.context, parent_id=u.parent_id, kind=u.kind,
+              valid_from=valid_from, source_snapshot=snapshot, config_hash=config_hash)
+        for u in units(section, policy)
     ]
 
 
 def build_part(store: Store, client: ECFRClient, *, title: int, part: str,
-               floor: str, config_hash: str, system_from: str | None = None) -> BuildStats:
+               floor: str, config_hash: str, system_from: str | None = None,
+               policy: ChunkPolicy = DEFAULT_POLICY) -> BuildStats:
     """Ingest every retrievable snapshot of one part into the store.
 
     Sections present in a part's *first* snapshot are dated from the history floor rather
@@ -95,6 +99,11 @@ def build_part(store: Store, client: ECFRClient, *, title: int, part: str,
 
     Sections that first appear in a *later* snapshot are not backfilled -- they did not exist
     before, and claiming otherwise would invent law.
+
+    ``policy`` is passed straight through to ``section_chunks``, so a whole store can be
+    rebuilt under ``ChunkPolicy.legacy()`` and scored against one built under the default.
+    That is the only honest way to report a chunking change: the two stores differ in the
+    chunker and in nothing else, not in the corpus, the dates or the ingest code.
 
     Each snapshot is applied in one transaction, so a part always advances a whole snapshot
     at a time. A half-applied snapshot is worse than no snapshot: it is indistinguishable
@@ -123,7 +132,7 @@ def build_part(store: Store, client: ECFRClient, *, title: int, part: str,
                     closed += store.close_valid(ident, date)
                 new_chunks.extend(section_chunks(section, title=title, part=part,
                                                  valid_from=valid_from, snapshot=date,
-                                                 config_hash=config_hash))
+                                                 config_hash=config_hash, policy=policy))
                 stats.versions_inserted += 1
 
             for ident in set(previous) - set(current):

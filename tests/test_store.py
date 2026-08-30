@@ -177,3 +177,33 @@ def test_in_memory_store_shares_one_connection(tmp_path):
         s.add([chunk("c", "text", "2017-01-01")], system_from=T0)
         assert s.count() == 1
         assert s.db is s.db
+
+
+def test_the_admitted_set_cache_does_not_survive_a_write():
+    """The cache keyed on `_generation` is the only reason a live request (system_time=None)
+    can be cached at all. If a write did not invalidate it, a retraction would keep being
+    ignored for as long as the process lived -- which is the specific bug that makes a
+    bitemporal store worse than no store, because the wrong answer would be reproducible."""
+    with Store(":memory:") as store:
+        store.add([chunk("630.306#a", "original text", "2020-01-01")])
+        before = store.candidate_ids(valid_date="2024-01-01")
+        assert len(before) == 1
+        assert store.candidate_ids(valid_date="2024-01-01") is before, "expected a cache hit"
+
+        store.retract(next(iter(store.as_of("2024-01-01")))["version_id"])
+        after = store.candidate_ids(valid_date="2024-01-01")
+        assert after == set(), "the retracted row is still being admitted"
+
+
+def test_a_replay_and_a_live_request_do_not_share_a_cache_entry():
+    """`system_time=None` means "now" and a pinned timestamp means "what we believed then".
+    Keying the cache on the resolved timestamp would collapse them into one entry and make
+    replay return live results -- silently, and only under load."""
+    with Store(":memory:") as store:
+        store.add([chunk("630.306#a", "text", "2020-01-01")],
+                  system_from="2021-01-01T00:00:00+00:00")
+        live = store.candidate_ids(valid_date="2024-01-01")
+        past = store.candidate_ids(valid_date="2024-01-01",
+                                   system_time="2020-06-01T00:00:00+00:00")
+        assert len(live) == 1
+        assert past == set(), "belief at 2020-06 predates the insert"
