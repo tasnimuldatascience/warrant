@@ -16,6 +16,9 @@ corpus:
   request_delay_s: 1.0          # public API; be polite
   cache_dir: "data/ecfr"
 
+store:
+  path: "data/warrant.sqlite3"
+
 chunk:
   unit: "section"               # retrieval unit
   citation_unit: "paragraph"    # what a citation points at

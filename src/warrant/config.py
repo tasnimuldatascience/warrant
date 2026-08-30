@@ -25,6 +25,10 @@ class CorpusConfig(BaseModel):
     cache_dir: str = "data/ecfr"
 
 
+class StoreConfig(BaseModel):
+    path: str = "data/warrant.sqlite3"
+
+
 class ChunkConfig(BaseModel):
     unit: str = "section"
     citation_unit: str = "paragraph"
@@ -73,6 +77,7 @@ class EvalConfig(BaseModel):
 
 class Config(BaseModel):
     corpus: CorpusConfig = Field(default_factory=CorpusConfig)
+    store: StoreConfig = Field(default_factory=StoreConfig)
     chunk: ChunkConfig = Field(default_factory=ChunkConfig)
     diff: DiffConfig = Field(default_factory=DiffConfig)
     index: IndexConfig = Field(default_factory=IndexConfig)
@@ -89,6 +94,11 @@ class Config(BaseModel):
     @property
     def cache_path(self) -> Path:
         p = Path(self.corpus.cache_dir)
+        return p if p.is_absolute() else REPO_ROOT / p
+
+    @property
+    def store_path(self) -> Path:
+        p = Path(self.store.path)
         return p if p.is_absolute() else REPO_ROOT / p
 
     @property

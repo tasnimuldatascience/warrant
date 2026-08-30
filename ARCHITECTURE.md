@@ -64,12 +64,38 @@ the one that actually bites — pending-amendment pointers:
 ```
 
 These appear when an amendment is pending and vanish when it publishes. A naive differ reads
-every appearance and every disappearance as a substantive amendment. In the first spike run
-against Part 630, **six of eight sampled "substantive" diffs were nothing but these pointers.**
+every appearance and every disappearance as a substantive amendment.
+
+Measured across 26 Title 5 parts and 222 snapshots: **140 section-pairs differ only in
+apparatus, against 188 whose regulatory text genuinely changed.** Without stripping, roughly
+43% of detected "amendments" would have been publication schedules rather than law — and in
+the first run against Part 630, six of eight sampled diffs were nothing but these pointers.
+Full run record in [`results/spike-001-amendment-viability.md`](results/spike-001-amendment-viability.md).
 
 So apparatus stripping is a first-class, unit-tested component with its own fixtures — not a
 `strip()` inside a parser. It is also the reason the `ingestion` row of the failure budget is
 expected to be non-zero: it is the row everyone assumes is free.
+
+### Two ways the corpus silently loses coverage
+
+Both were found by ingesting and then querying, not by reading code. Both fail without an
+error: the corpus simply holds no evidence for some dates, and a question about those dates
+gets an honest-looking "I do not know" that is actually a bug.
+
+**Parts never amended since 2017 ingest to nothing.** Such a part advertises exactly one
+version date — the 2016-12-27 floor — which `/full/` refuses to serve. Parts 511, 530, 536
+and 610 all behaved this way, so hours-of-duty questions had no evidence at all. The fix is
+to always ingest the title's `latest_issue_date` as a snapshot. Not *today*: `/full/` 404s on
+any date after the issue date, and the gap is days wide, so ingestion reads the API's own
+statement of currency rather than the wall clock.
+
+**Sections are dated from the floor, not from first observation.** Part 315 has no post-floor
+amendment until 2020-10-16. Dating its text from that snapshot would make three years of
+answerable questions unanswerable. eCFR records a version date whenever a part is amended, so
+the absence of one between the floor and the first snapshot is *positive evidence* that the
+text did not change — the backfill is licensed by the source, not assumed. Sections that
+first appear in a later snapshot are never backfilled; they did not exist, and dating them
+earlier would invent law.
 
 ### Chunking
 
@@ -92,6 +118,10 @@ Consecutive snapshots are aligned by section identifier and classified:
 
 Only `substantive_localized` feeds the temporal benchmark. The rest are counted and reported,
 because the discard rate is itself a finding.
+
+Measured: **158 of 188 changed section-pairs (84.0%) are clean substantive**, which cleared
+the pre-registered viability threshold of 60% and made amendment mining the benchmark
+centrepiece. Zero renumbering was found across all 26 parts.
 
 ---
 
@@ -268,12 +298,15 @@ than forcing them to.
 
 ### The artifact
 
+The shape of the published table — **illustrative numbers, not measurements.** Nothing goes
+in the README until `make autopsy` produces it on a clean checkout.
+
 ```
-427 questions, 61 failures        after fixing the largest row
+N questions, M failures           after fixing the largest row
 observational first-loss:         observational first-loss:
-  retrieval            19           retrieval             8
-  generation           17           generation           14
-  reranking             8           reranking             7
+  retrieval             a           retrieval             a'
+  generation            b           generation            b'
+  reranking             c           reranking             c'
   ...                               ...
 ```
 

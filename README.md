@@ -42,8 +42,12 @@ cd warrant && make install
 
 make survey     # how much amendment history each eCFR part actually has
 make fetch      # download point-in-time snapshots (cached)
+make build      # ingest into the bitemporal store
 make diff       # classify what changed, and report the discard rate
 ```
+
+Current corpus: 26 parts of 5 CFR chapter I, 222 point-in-time snapshots from 2017 to today,
+**12,858 chunk versions**, roughly 1,300 sections in force at any given date.
 
 Later phases (bitemporal store, retrieval, benchmark, failure budget) add their targets to
 `make help` as they land. Nothing is advertised before it works.

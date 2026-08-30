@@ -2,6 +2,7 @@
 
     warrant corpus survey  -c CONFIG    how much amendment history each part actually has
     warrant corpus fetch   -c CONFIG    download eCFR point-in-time snapshots (cached)
+    warrant corpus build   -c CONFIG    ingest cached snapshots into the bitemporal store
     warrant corpus diff    -c CONFIG    classify what changed between consecutive snapshots
 
 Commands appear here only once the code behind them exists. A CLI that advertises a
@@ -21,9 +22,11 @@ from rich.table import Table
 
 from .config import Config
 from .corpus.apparatus import text_of
+from .corpus.build import build_part
 from .corpus.diff import Change, diff_snapshots
 from .corpus.ecfr import ECFRClient
 from .corpus.parse import parse_sections
+from .index.store import Store
 
 app = typer.Typer(add_completion=False, help=__doc__, no_args_is_help=True)
 corpus_app = typer.Typer(help="Corpus construction.", no_args_is_help=True)
@@ -32,6 +35,18 @@ app.add_typer(corpus_app, name="corpus")
 console = Console()
 
 ConfigOpt = Annotated[Path | None, typer.Option("-c", "--config", help="config YAML")]
+
+#: Short ASCII column names. The stock Windows console renders a wide table badly and
+#: mangles wrapped headers, which makes published numbers harder to read than they deserve.
+SHORT_KIND = {
+    "substantive_localized": "subst",
+    "wholesale_rewrite": "whole",
+    "editorial": "edit",
+    "apparatus_only": "appar",
+    "renumbered": "renum",
+    "added": "added",
+    "removed": "remvd",
+}
 
 
 def _client(cfg: Config) -> ECFRClient:
@@ -90,6 +105,30 @@ def corpus_fetch(config: ConfigOpt = None) -> None:
                   f" ({unavailable} advertised dates had no retrievable text)")
 
 
+@corpus_app.command("build")
+def corpus_build(config: ConfigOpt = None,
+                 rebuild: Annotated[bool, typer.Option(help="delete the store first")] = False
+                 ) -> None:
+    """Ingest cached snapshots into the bitemporal store."""
+    cfg = Config.load(config)
+    client = _client(cfg)
+    path = cfg.store_path
+    if rebuild and path.exists():
+        path.unlink()
+    with Store(path) as store:
+        table = Table(title="bitemporal ingest", header_style="bold")
+        for col in ("part", "snaps", "versions", "chunks", "closed", "unchanged"):
+            table.add_column(col, justify="right")
+        for part in cfg.corpus.parts:
+            st = build_part(store, client, title=cfg.corpus.title, part=part,
+                            floor=cfg.corpus.history_floor, config_hash=cfg.hash)
+            table.add_row(part, str(st.snapshots), str(st.versions_inserted),
+                          str(st.chunks_inserted), str(st.sections_closed),
+                          str(st.unchanged))
+        console.print(table)
+        console.print(f"[bold]{store.count()}[/bold] chunk versions in {path}")
+
+
 @corpus_app.command("diff")
 def corpus_diff(config: ConfigOpt = None,
                 samples: Annotated[int, typer.Option(help="sample diffs to print")] = 0) -> None:
@@ -129,7 +168,7 @@ def corpus_diff(config: ConfigOpt = None,
     table.add_column("part", justify="right")
     kinds = [c.value for c in Change]
     for k in kinds:
-        table.add_column(k.replace("_", "\n"), justify="right")
+        table.add_column(SHORT_KIND.get(k, k), justify="right")
     for part, c in per_part.items():
         if sum(c.values()):
             table.add_row(part, *[str(c[k]) for k in kinds])

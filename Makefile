@@ -3,11 +3,12 @@
 PY ?= python
 CFG ?= configs/default.yaml
 
-.PHONY: help install survey fetch diff test lint fmt clean
+.PHONY: help install survey fetch build diff test lint fmt clean
 
 help:
 	@echo "install   editable install with dev extras"
 	@echo "survey    how much amendment history each eCFR part actually has"
+	@echo "build     ingest cached snapshots into the bitemporal store"
 	@echo "fetch     download eCFR point-in-time snapshots (cached, ~10 min first run)"
 	@echo "diff      classify snapshot-to-snapshot change; report the discard rate"
 	@echo "test      run the test suite (offline)"
@@ -15,6 +16,9 @@ help:
 
 install:
 	$(PY) -m pip install -e ".[dev]"
+
+build:
+	$(PY) -m warrant.cli corpus build -c $(CFG)
 
 survey:
 	$(PY) -m warrant.cli corpus survey -c $(CFG)

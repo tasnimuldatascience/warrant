@@ -90,16 +90,40 @@ class ECFRClient:
 
     # -- corpus ------------------------------------------------------------------
 
-    def version_dates(self, title: int, part: str, *,
-                      floor: str = HISTORY_FLOOR) -> list[str]:
+    def latest_issue_date(self, title: int) -> str:
+        """The most recent date for which the API will serve this title.
+
+        Not today. ``/full/`` returns 404 for any date after the title issue date, and the
+        gap is days wide -- 2026-08-30 was rejected while 2026-08-26 was served. Reading the
+        API statement of its own currency keeps ingestion deterministic instead of dependent
+        on the wall clock and on how far behind eCFR happens to be.
+        """
+        raw = self._cached(f"{API}/titles.json", "titles.json")
+        for row in json.loads(raw).get("titles", []):
+            if row.get("number") == title:
+                return row["latest_issue_date"]
+        raise LookupError(f"title {title} not listed by the eCFR API")
+
+    def version_dates(self, title: int, part: str, *, floor: str = HISTORY_FLOOR,
+                      include_current: bool = True) -> list[str]:
         """Distinct snapshot dates for a part, oldest first.
 
         Distinct *dates* -- not the row count, which is per-section and much larger.
+
+        ``include_current`` appends the title latest issue date, and it is not a convenience.
+        A part that has not been amended since 2017 advertises exactly one version date, the
+        2016-12-27 floor, which ``/full/`` refuses to serve. Without the current snapshot
+        those parts ingest to nothing and their in-force text is silently absent from the
+        corpus: parts 511, 530, 536 and 610 all behaved this way, so questions about hours of
+        duty had no evidence to retrieve and no error to explain why.
         """
         raw = self._cached(f"{API}/versions/title-{title}.json?part={part}",
                            f"versions-t{title}-p{part}.json")
         rows = json.loads(raw).get("content_versions", [])
-        return sorted({r["date"] for r in rows if r.get("date") and r["date"] >= floor})
+        dates = {r["date"] for r in rows if r.get("date") and r["date"] >= floor}
+        if include_current:
+            dates.add(self.latest_issue_date(title))
+        return sorted(dates)
 
     def snapshot(self, title: int, part: str, date: str) -> bytes:
         """Full XML of a part as it stood on ``date``."""
