@@ -326,7 +326,10 @@ def test_health_and_ready_answer_different_questions(bare_client: TestClient):
 def test_ready_is_true_once_the_corpus_and_models_are_there(client: TestClient):
     body = client.get("/ready").json()
     assert body == {"ready": True, "corpus": True, "chunks": len(SYNTHETIC),
-                    "models": True, "generator": False, "detail": None}
+                    "models": True, "generator": False, "detail": None,
+                    # null, not 0: this fixture runs lexical-only, so there is no index
+                    # for anything to be missing from. Zero would claim a covered index.
+                    "uncovered_chunks": None}
 
 
 def test_a_failed_warm_up_is_reported_not_fatal(tmp_path):

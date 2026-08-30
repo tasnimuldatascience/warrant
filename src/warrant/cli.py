@@ -41,7 +41,7 @@ from .corpus.parse import parse_sections
 from .eval.bench import LAST_TEMPORAL_DISCARDS, mine_all
 from .eval.run import score
 from .index.store import Store
-from .retrieve.dense import DenseIndex
+from .retrieve.dense import DenseIndex, uncovered
 from .retrieve.dense import build as build_dense
 from .retrieve.hybrid import Retriever
 from .sources.base import AUTHORITY_NAMES
@@ -347,6 +347,16 @@ def _report_reachability(cfg: Config, source: str) -> None:
             f"[red]no dated query can reach {source}.[/red] Its valid_from is later than "
             "every date in the corpus, so the as-of predicate excludes all of it. Rows "
             "landing is not the same as a corpus being able to see them.")
+
+    if DenseIndex.exists(cfg.dense_path):
+        with Store(cfg.store_path) as store:
+            missing = uncovered(DenseIndex.load(cfg.dense_path), store)
+        if missing:
+            console.print(
+                f"  [yellow]{missing:,} believed chunks have no vector.[/yellow] "
+                "They are still found lexically, so they appear in one of the two rank "
+                "lists RRF fuses instead of two and quietly lose to neighbours that are in "
+                "both. Run `warrant index build` to close it.")
 
 
 @corpus_app.command("diff")

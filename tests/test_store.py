@@ -237,3 +237,24 @@ def test_the_admitted_set_cache_keys_on_the_authority_filter(store: Store):
     statute_only = store.candidate_ids(valid_date="2024-01-01", max_authority=1)
     assert len(everything) == 1
     assert statute_only == set(), "a regulation is authority 2 and must not pass max_authority=1"
+
+
+def test_uncovered_counts_chunks_the_dense_index_cannot_see():
+    """A chunk ingested after the index was built is still found by BM25, so it lands in one
+    of the two rank lists RRF fuses instead of two and loses roughly half its fused score.
+    It never disappears, which is exactly what makes the degradation hard to notice --
+    hence a count rather than an exception."""
+    import numpy as np
+
+    from warrant.retrieve.dense import DenseIndex, uncovered
+
+    with Store(":memory:") as store:
+        store.add([chunk("630.306#a", "original", "2020-01-01")])
+        covered = [r["id"] for r in store.db.execute("SELECT id FROM chunk")]
+        index = DenseIndex(ids=np.array(covered),
+                           vectors=np.zeros((len(covered), 4), dtype=np.float32),
+                           model="test", config_hash="test")
+        assert uncovered(index, store) == 0
+
+        store.add([chunk("6304#d", "statute ingested later", "2020-01-01")])
+        assert uncovered(index, store) == 1

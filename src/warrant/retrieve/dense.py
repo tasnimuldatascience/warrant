@@ -42,6 +42,24 @@ class ModelMismatch(RuntimeError):
     """The index on disk was built by a different encoder than the one being queried."""
 
 
+def uncovered(index: DenseIndex, store) -> int:
+    """How many believed chunks the dense index has no vector for.
+
+    Zero for a freshly built index, and non-zero the moment anything is ingested afterwards
+    -- which degrades silently and asymmetrically. A chunk with no vector is still found by
+    BM25, so it appears in one of the two rank lists RRF fuses instead of two, and its fused
+    score is roughly halved against neighbours that are in both. It does not vanish, which
+    is what makes it hard to notice: it just quietly loses.
+
+    Counted rather than raised on. An index one document behind the store is a normal state
+    between `corpus ingest` and `index build`, and refusing to serve would be worse than
+    saying so.
+    """
+    believed = {r["id"] for r in store.db.execute(
+        "SELECT id FROM chunk WHERE system_to IS NULL")}
+    return len(believed - set(index.ids.tolist()))
+
+
 def retrieval_text(row) -> str:
     """The one string every ranking stage sees for a chunk.
 

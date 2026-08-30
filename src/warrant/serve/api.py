@@ -57,7 +57,7 @@ from pydantic import BaseModel, Field
 from ..config import Config
 from ..generate.answer import excerpts_for
 from ..index.store import Store
-from ..retrieve.dense import DenseIndex
+from ..retrieve.dense import DenseIndex, uncovered
 from ..retrieve.hybrid import Retriever
 from ..retrieve.scope import PART_RESTRICTIONS, Scope
 
@@ -292,6 +292,14 @@ class ReadyResponse(BaseModel):
     ready: bool
     corpus: bool
     models: bool
+    #: Believed chunks the dense index has no vector for. Reported, never fatal: an index one
+    #: ingest behind the store is a normal state, and refusing traffic would be worse than
+    #: saying so. It is here because the degradation is otherwise invisible -- an unvectored
+    #: chunk is still found by BM25, so it appears in one of the two rank lists RRF fuses
+    #: instead of two, loses roughly half its fused score, and never disappears outright.
+    #: ``null`` means there is no dense index to be missing from -- a lexical-only
+    #: deployment -- which is a different statement from ``0``.
+    uncovered_chunks: int | None = None
     generator: bool
     chunks: int | None = None
     detail: str | None = None
@@ -555,10 +563,17 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
         models = rt.models_loaded
         if corpus and not models:
             detail = detail or "models not built yet"
+        stale = None
+        if corpus and models and rt.retriever.dense_index is not None:
+            stale = uncovered(rt.retriever.dense_index, rt.store)
+            if stale:
+                detail = detail or (f"{stale:,} chunks have no vector; "
+                                    "run `warrant index build`")
         ok = corpus and models
         if not ok:
             response.status_code = 503
         return ReadyResponse(ready=ok, corpus=corpus, chunks=chunks, models=models,
+                             uncovered_chunks=stale,
                              generator=rt._generator is not None, detail=detail)
 
     # -- metadata ---------------------------------------------------------------
