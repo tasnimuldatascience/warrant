@@ -141,6 +141,33 @@ def _exclusion_clause(parts: Sequence[str], params: dict[str, object],
     return f"AND {alias}part NOT IN ({', '.join(names)})"
 
 
+def _authority_clause(sources: Sequence[str] | None, max_authority: int | None,
+                      params: dict[str, object], alias: str = "") -> str:
+    """Restrict a query to some sources, or to law at or above an authority level.
+
+    ``max_authority`` reads as "no weaker than": statute is 1 and archival OCR is 5, so
+    ``max_authority=2`` admits statute and regulation and refuses the rest. The comparison
+    being ``<=`` on a number that gets larger as the source gets weaker is a genuine trap,
+    which is why this is one function and not a filter written out at each call site.
+
+    Pushed into SQL for the same reason the as-of predicate is: a guidance page filtered out
+    after ranking has already consumed a candidate slot and a rerank budget that a statute
+    could have had.
+    """
+    clauses = []
+    if sources:
+        names = []
+        for i, src in enumerate(sources):
+            key = f"src{i}"
+            params[key] = src
+            names.append(f":{key}")
+        clauses.append(f"AND {alias}source IN ({', '.join(names)})")
+    if max_authority is not None:
+        params["maxauth"] = max_authority
+        clauses.append(f"AND {alias}authority <= :maxauth")
+    return " ".join(clauses)
+
+
 def now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -404,7 +431,9 @@ class Store:
 
     def search(self, query: str, *, valid_date: str, system_time: str | None = None,
                limit: int = 100, temporal: bool = True,
-               exclude_parts: Sequence[str] = ()) -> list[sqlite3.Row]:
+               exclude_parts: Sequence[str] = (),
+               sources: Sequence[str] | None = None,
+               max_authority: int | None = None) -> list[sqlite3.Row]:
         """Lexical search with the as-of predicate pushed into the query.
 
         The predicate lives inside the SQL, not applied to results afterwards. Filtering
@@ -422,20 +451,23 @@ class Store:
                         if temporal else "")
         params: dict[str, object] = {"q": query, "v": valid_date, "s": sys_t, "k": limit}
         excl = _exclusion_clause(exclude_parts, params, alias="c.")
+        auth = _authority_clause(sources, max_authority, params, alias="c.")
         return self.db.execute(
             "SELECT c.*, bm25(chunk_fts) AS score "
             "FROM chunk_fts JOIN chunk c ON c.id = chunk_fts.rowid "
             "WHERE chunk_fts MATCH :q "
             f"{valid_clause}"
             "AND c.system_from <= :s AND (c.system_to IS NULL OR c.system_to > :s) "
-            f"{excl} "
+            f"{excl} {auth} "
             "ORDER BY score LIMIT :k",
             params,
         ).fetchall()
 
     def candidate_ids(self, *, valid_date: str, system_time: str | None = None,
                       temporal: bool = True,
-                      exclude_parts: Sequence[str] = ()) -> set[int]:
+                      exclude_parts: Sequence[str] = (),
+                      sources: Sequence[str] | None = None,
+                      max_authority: int | None = None) -> set[int]:
         """Row ids admitted by the predicates, for restricting a dense search.
 
         Dense retrieval cannot express the predicate in SQL, so it restricts the search space
@@ -451,7 +483,8 @@ class Store:
         # is only cacheable at all because ``_generation`` invalidates it the moment
         # anything is written. Wall clock alone never changes the answer: ``system_to`` is
         # only ever set by a write, which bumps the generation.
-        key = (valid_date, system_time, temporal, tuple(exclude_parts))
+        key = (valid_date, system_time, temporal, tuple(exclude_parts),
+               tuple(sources) if sources else None, max_authority)
         cached = self._admits.get(key)
         if cached is not None and cached[0] == self._generation:
             return cached[1]
@@ -460,10 +493,11 @@ class Store:
                         if temporal else "")
         params: dict[str, object] = {"v": valid_date, "s": sys_t}
         excl = _exclusion_clause(exclude_parts, params)
+        auth = _authority_clause(sources, max_authority, params)
         rows = self.db.execute(
             "SELECT id FROM chunk WHERE system_from <= :s "
             "AND (system_to IS NULL OR system_to > :s) "
-            f"{valid_clause}{excl}",
+            f"{valid_clause}{excl} {auth}",
             params,
         ).fetchall()
         admitted = {r["id"] for r in rows}

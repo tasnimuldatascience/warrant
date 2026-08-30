@@ -27,13 +27,14 @@ reranker barely preferred anything" indistinguishable after the fact, and left r
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ..index.store import Store
+from ..sources.base import AUTHORITY_REGULATION
 from .dense import retrieval_text
 from .scope import GOVERNMENT_WIDE, Scope
 
@@ -234,13 +235,27 @@ class Trace:
         return run
 
 
-def fuse(rankings: Sequence[Sequence[str]], *, k: int = RRF_K) -> list[Candidate]:
-    """Reciprocal rank fusion, keeping the weight each candidate was fused at."""
+def fuse(rankings: Sequence[Sequence[str]], *, k: int = RRF_K,
+         authority: Mapping[str, int] | None = None) -> list[Candidate]:
+    """Reciprocal rank fusion, keeping the weight each candidate was fused at.
+
+    Ties are common, not exceptional: RRF sums a small set of reciprocals, so two candidates
+    holding the same rank in the same lists get byte-identical scores. Those ties were being
+    broken by version_id -- deterministic, and arbitrary. Breaking them by authority instead
+    is free and is the one place an authority prior is unarguable: among candidates the
+    ranking cannot distinguish, prefer the statute to the fact sheet.
+
+    It only ever reorders exact ties. An authority prior applied to *unequal* scores would
+    be a real ranking change and would have to be measured before it could be defended;
+    this is not that, and must not be quietly grown into it.
+    """
     scores: dict[str, float] = {}
     for ranking in rankings:
         for rank, key in enumerate(ranking, start=1):
             scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank)
-    ordered = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    auth = authority or {}
+    ordered = sorted(scores.items(),
+                     key=lambda kv: (-kv[1], auth.get(kv[0], AUTHORITY_REGULATION), kv[0]))
     return [Candidate(key, score, rank) for rank, (key, score) in enumerate(ordered, start=1)]
 
 
@@ -288,6 +303,15 @@ class Retriever:
     config_hash: str = ""
     #: Only needed for a reranker that will not name itself; see `model_name`.
     reranker_model: str = ""
+    #: Which sources may be retrieved from, and how weak an authority may be cited.
+    #: ``None`` on both means everything in the store, which is the right default for a
+    #: store holding only the regulation. They matter the moment a second source is
+    #: ingested: a statute binds and an OPM fact sheet explains, and a ranking that cannot
+    #: tell them apart will cite the fact sheet over the law it summarises whenever the
+    #: fact sheet happens to use the asker's words -- which, being written for readers
+    #: rather than for lawyers, it usually does.
+    sources: tuple[str, ...] | None = None
+    max_authority: int | None = None
 
     def model_names(self) -> dict[str, str]:
         """The models behind this ranking. Absent components get no key at all."""
@@ -310,7 +334,9 @@ class Retriever:
         with trace.timed("predicates"):
             allowed = self.store.candidate_ids(valid_date=as_of, system_time=system_time,
                                                temporal=self.temporal,
-                                               exclude_parts=excluded)
+                                               exclude_parts=excluded,
+                                               sources=self.sources,
+                                               max_authority=self.max_authority)
         trace.admitted = len(allowed)
 
         # Lexical and dense are independent -- both read the candidate set and neither reads
@@ -330,7 +356,8 @@ class Retriever:
             rows = self.store.search(fts_query(query), valid_date=as_of,
                                      system_time=system_time,
                                      limit=self.candidates_lexical, temporal=self.temporal,
-                                     exclude_parts=excluded)
+                                     exclude_parts=excluded, sources=self.sources,
+                                     max_authority=self.max_authority)
             # bm25() is selected by the query and was being thrown away one line later. It is
             # negative and ascending-better, kept exactly as SQLite reports it.
             return ([(r["version_id"], r["score"]) for r in rows],
@@ -357,7 +384,7 @@ class Retriever:
             rankings = [trace.lexical, trace.dense]
 
         with trace.timed("fusion"):
-            trace.record("fused", fuse(rankings))
+            trace.record("fused", fuse(rankings, authority=self._authority(rankings)))
         head = trace.candidates("fused")[: self.rerank_top_k]
 
         if self.reranker is not None and head:
@@ -368,6 +395,21 @@ class Retriever:
             trace.record("final", head[: self.final_k])
         trace.timings["total"] = (time.perf_counter() - started) * 1000.0
         return trace
+
+    def _authority(self, rankings: Sequence[Sequence[str]]) -> dict[str, int]:
+        """Authority for every candidate about to be fused, for tie-breaking only.
+
+        One query over the union rather than a column on Candidate: fusion consumes bare
+        rank lists on purpose -- it is the stage that must not know what it is ranking -- and
+        threading provenance through it would make the two ranking inputs no longer
+        interchangeable.
+        """
+        keys = sorted({key for ranking in rankings for key in ranking})
+        if not keys:
+            return {}
+        marks = ",".join("?" * len(keys))
+        return {r["version_id"]: r["authority"] for r in self.store.db.execute(
+            f"SELECT version_id, authority FROM chunk WHERE version_id IN ({marks})", keys)}
 
     # -- stages ------------------------------------------------------------------
 

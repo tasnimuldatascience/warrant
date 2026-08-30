@@ -104,10 +104,75 @@ class RetrieveConfig(BaseModel):
     #: evidence of the failure budget and the generator kept seeing half of what the fix
     #: delivered -- a tuning result silently thrown away one module downstream.
     context_chunks: int | None = None
+    #: Which sources retrieval may draw from, and how weak an authority it may cite.
+    #: Empty and null mean "everything in the store", which is correct while the store holds
+    #: only the regulation. `max_authority: 2` is the setting to reach for once guidance is
+    #: ingested and a fact sheet starts outranking the law it summarises: statute is 1 and
+    #: archival OCR is 5, so it reads as "no weaker than regulation".
+    sources: list[str] = Field(default_factory=list)
+    max_authority: int | None = None
 
     @property
     def context_k(self) -> int:
         return self.context_chunks if self.context_chunks is not None else self.final_k
+
+
+class FederalRegisterConfig(BaseModel):
+    enabled: bool = False
+    cache_dir: str = "data/federal_register"
+    #: Notices are found by the CFR parts they amend, which is the join to the eCFR corpus.
+    #: Narrower than `corpus.parts` on purpose: the search is one request per part and the
+    #: point is the parts a benchmark question can actually reach.
+    parts: list[str] = Field(default_factory=lambda: ["630"])
+    published_since: str = "2000-01-01"
+    term: str = ""
+    max_documents: int = 200
+
+
+class UscConfigModel(BaseModel):
+    enabled: bool = False
+    cache_dir: str = "data/usc"
+    title: str = "5"
+    #: Chapter 63 is leave -- the statute behind 5 CFR 630, which is where the temporal
+    #: benchmark lives. Empty sections and chapters take the whole title (1,163 sections).
+    chapters: list[str] = Field(default_factory=lambda: ["63"])
+    sections: list[str] = Field(default_factory=list)
+    #: Empty discovers the current release point; a value like "119-102" pins it. Pinning is
+    #: what makes an ingest reproducible, and it is left open by default so a first run works.
+    release_point: str = ""
+
+
+class OpmGuidanceConfig(BaseModel):
+    enabled: bool = False
+    cache_dir: str = "data/opm"
+    #: Empty uses sources.html.OPM_FACT_SHEETS.
+    urls: list[str] = Field(default_factory=list)
+    ttl_hours: float = 24.0
+
+
+class GovInfoConfig(BaseModel):
+    enabled: bool = False
+    cache_dir: str = "data/govinfo"
+    ocr: bool = True
+    #: package/granule pairs, e.g. "CFR-2023-title5-vol1/CFR-2023-title5-vol1-sec630-306".
+    #: Listed rather than discovered: govinfo's printed volumes are large and the archival
+    #: tier is a corroborating source, not a corpus to sweep.
+    granules: list[str] = Field(default_factory=list)
+
+
+class SourcesConfig(BaseModel):
+    """The non-eCFR sources, each off by default.
+
+    Off by default because every one of them reaches a different public API, and a clone
+    that fails on first run because a network it never asked to use was unavailable is a
+    clone nobody evaluates. `warrant corpus build` gives the full P0 corpus with no source
+    enabled; `warrant corpus ingest --source usc` is the opt-in.
+    """
+
+    federal_register: FederalRegisterConfig = Field(default_factory=FederalRegisterConfig)
+    usc: UscConfigModel = Field(default_factory=UscConfigModel)
+    opm: OpmGuidanceConfig = Field(default_factory=OpmGuidanceConfig)
+    govinfo: GovInfoConfig = Field(default_factory=GovInfoConfig)
 
 
 class EvalConfig(BaseModel):
@@ -122,6 +187,7 @@ class Config(BaseModel):
     index: IndexConfig = Field(default_factory=IndexConfig)
     retrieve: RetrieveConfig = Field(default_factory=RetrieveConfig)
     generate: GenerateConfig = Field(default_factory=GenerateConfig)
+    sources: SourcesConfig = Field(default_factory=SourcesConfig)
     eval: EvalConfig = Field(default_factory=EvalConfig)
 
     @classmethod

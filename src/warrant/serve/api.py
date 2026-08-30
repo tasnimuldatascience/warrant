@@ -355,8 +355,10 @@ class Runtime:
                         rerank_top_k=self.cfg.retrieve.rerank_top_k,
                         final_k=self.cfg.retrieve.final_k,
                         parts_universe=self.cfg.corpus.parts,
-                config_hash=self.cfg.hash,
-                reranker_model=self.cfg.index.rerank.model,
+                        config_hash=self.cfg.hash,
+                        reranker_model=self.cfg.index.rerank.model,
+                        sources=tuple(self.cfg.retrieve.sources) or None,
+                        max_authority=self.cfg.retrieve.max_authority,
                     )
         return self._retriever
 

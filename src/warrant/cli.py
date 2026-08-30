@@ -3,6 +3,7 @@
     warrant corpus survey  -c CONFIG    how much amendment history each part actually has
     warrant corpus fetch   -c CONFIG    download eCFR point-in-time snapshots (cached)
     warrant corpus build   -c CONFIG    ingest cached snapshots into the bitemporal store
+    warrant corpus ingest  --source X   add statute, notices, guidance or scans
     warrant corpus diff    -c CONFIG    classify what changed between consecutive snapshots
     warrant index build    -c CONFIG    embed the store into the dense index
     warrant eval run       -c CONFIG    score every bucket on a split, with ablations
@@ -30,11 +31,12 @@ from rich.console import Console
 from rich.table import Table
 
 from .autopsy import localize as autopsy
-from .config import Config
+from .config import REPO_ROOT, Config
 from .corpus.apparatus import text_of
 from .corpus.build import build_part
 from .corpus.diff import Change, diff_snapshots
 from .corpus.ecfr import ECFRClient
+from .corpus.ingest import ingest
 from .corpus.parse import parse_sections
 from .eval.bench import LAST_TEMPORAL_DISCARDS, mine_all
 from .eval.run import score
@@ -42,6 +44,7 @@ from .index.store import Store
 from .retrieve.dense import DenseIndex
 from .retrieve.dense import build as build_dense
 from .retrieve.hybrid import Retriever
+from .sources.base import AUTHORITY_NAMES
 
 app = typer.Typer(add_completion=False, help=__doc__, no_args_is_help=True)
 corpus_app = typer.Typer(help="Corpus construction.", no_args_is_help=True)
@@ -200,6 +203,114 @@ def corpus_build(config: ConfigOpt = None,
         console.print(f"[bold]{store.count()}[/bold] chunk versions in {path}")
 
 
+#: The non-eCFR sources, by the name they carry on every chunk they write. Constructed
+#: lazily: importing `sources.pdf` pulls in PyMuPDF and an OCR engine, and a user ingesting
+#: the US Code should not pay for that.
+SOURCE_NAMES = ("federal_register", "usc", "opm", "govinfo")
+
+
+def _source(name: str, cfg: Config):
+    """Build one configured source, or explain why it cannot be built.
+
+    Each source is off in the config by default, so the common first failure is not a stack
+    trace but a silent no-op: an enabled=false source that yields nothing looks exactly like
+    a source whose API returned nothing. The check is here, once, rather than in four
+    ``documents()`` implementations that would each have to be trusted to make it.
+    """
+    if name == "federal_register":
+        c = cfg.sources.federal_register
+        from .sources.federal_register import FederalRegisterSource
+
+        return c, FederalRegisterSource(
+            cache_dir=_under_root(c.cache_dir), cfr_title=cfg.corpus.title,
+            cfr_parts=tuple(c.parts), published_since=c.published_since,
+            term=c.term, max_documents=c.max_documents,
+            delay_s=cfg.corpus.request_delay_s)
+
+    if name == "usc":
+        c = cfg.sources.usc
+        from .sources.usc import UscConfig, UscSource
+
+        return c, UscSource(config=UscConfig(
+            title=c.title, sections=list(c.sections), chapters=list(c.chapters),
+            release_point=c.release_point, cache_dir=_under_root(c.cache_dir),
+            request_delay_s=cfg.corpus.request_delay_s))
+
+    if name == "opm":
+        c = cfg.sources.opm
+        from .sources.html import OPM_FACT_SHEETS, HtmlGuidanceSource
+
+        return c, HtmlGuidanceSource(
+            cache_dir=_under_root(c.cache_dir),
+            urls=tuple(c.urls) if c.urls else OPM_FACT_SHEETS,
+            ttl_hours=c.ttl_hours)
+
+    if name == "govinfo":
+        c = cfg.sources.govinfo
+        from .sources.pdf import PdfRef, PdfSource
+
+        refs = []
+        for spec in c.granules:
+            package, _, granule = spec.partition("/")
+            refs.append(PdfRef(package=package, granule=granule))
+        return c, PdfSource(refs=refs, cache_dir=_under_root(c.cache_dir), ocr=c.ocr)
+
+    raise typer.BadParameter(f"unknown source {name!r}; choose from {', '.join(SOURCE_NAMES)}")
+
+
+def _under_root(path: str) -> Path:
+    p = Path(path)
+    return p if p.is_absolute() else REPO_ROOT / p
+
+
+@corpus_app.command("ingest")
+def corpus_ingest(
+    source: Annotated[str, typer.Option(help=f"one of {', '.join(SOURCE_NAMES)}")],
+    config: ConfigOpt = None,
+) -> None:
+    """Add a non-eCFR source to the store: statute, notices, guidance or scans.
+
+    Incremental, unlike `corpus build`. The eCFR path derives validity intervals by diffing
+    consecutive point-in-time snapshots, which only works if it applies every snapshot from
+    scratch -- so it refuses a non-empty store. These sources hand over documents that
+    already know their own dates, so re-running is a content-hash comparison and a
+    byte-identical page is a no-op.
+    """
+    cfg = Config.load(config)
+    if source not in SOURCE_NAMES:
+        raise typer.BadParameter(f"unknown source {source!r}; "
+                                 f"choose from {', '.join(SOURCE_NAMES)}")
+    conf, src = _source(source, cfg)
+    if not conf.enabled:
+        console.print(f"[yellow]sources.{source}.enabled is false[/yellow] in the config. "
+                      "Set it to true to ingest; every source is off by default so a clone "
+                      "builds the P0 corpus without reaching a network it did not ask for.")
+        raise typer.Exit(1)
+
+    with Store(cfg.store_path) as store:
+        if store.is_empty():
+            console.print("[yellow]the store is empty.[/yellow] Run `warrant corpus build` "
+                          "first: these sources corroborate the regulation, and ingesting "
+                          "them alone would produce a store no benchmark in this repo can "
+                          "score.")
+        stats = ingest(store, src.documents(), source=src.name,
+                       config_hash=cfg.hash)
+
+    table = Table(title=f"{src.name} ingest", header_style="bold")
+    for col in ("documents", "unchanged", "units", "closed", "empty", "failed"):
+        table.add_column(col, justify="right")
+    table.add_row(str(stats.documents), str(stats.documents_unchanged),
+                  str(stats.units_inserted), str(stats.versions_closed),
+                  str(stats.documents_empty), str(stats.documents_failed))
+    console.print(table)
+    for failure in stats.failures[:10]:
+        console.print(f"  [red]failed[/red] {failure}")
+    if stats.documents_failed > len(stats.failures[:10]):
+        console.print(f"  ... and {stats.documents_failed - 10} more")
+    console.print(f"[bold]{stats.units_inserted}[/bold] units added at authority "
+                  f"{src.authority} ({AUTHORITY_NAMES[src.authority]})")
+
+
 @corpus_app.command("diff")
 def corpus_diff(config: ConfigOpt = None,
                 samples: Annotated[int, typer.Option(help="sample diffs to print")] = 0) -> None:
@@ -276,6 +387,8 @@ def _retriever(cfg: Config, store: Store, *, dense: bool = True, rerank: bool = 
         rerank_top_k=cfg.retrieve.rerank_top_k, final_k=cfg.retrieve.final_k,
         temporal=temporal, parts_universe=cfg.corpus.parts,
         config_hash=cfg.hash, reranker_model=cfg.index.rerank.model,
+        sources=tuple(cfg.retrieve.sources) or None,
+        max_authority=cfg.retrieve.max_authority,
     )
 
 

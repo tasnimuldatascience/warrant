@@ -84,7 +84,58 @@ retrieve:
   # Excerpts handed to the generator. null = final_k, so widening retrieval widens context
   # instead of the two silently disagreeing.
   context_chunks: null
+  # Which sources retrieval may draw from, and how weak an authority it may cite. Empty and
+  # null mean everything in the store, which is right while the store holds only the
+  # regulation. Once guidance is ingested, `max_authority: 2` is the setting to reach for:
+  # statute is 1 and archival OCR is 5, so it reads "no weaker than regulation". A fact
+  # sheet is written for readers rather than for lawyers, so it tends to use the asker's own
+  # words -- which is exactly what makes it outrank the law it summarises.
+  sources: []
+  max_authority: null
 
 eval:
   buckets: ["temporal", "generated", "human"]
   bootstrap_samples: 1000       # paired bootstrap for confidence intervals
+
+# Non-eCFR sources. Every one is off by default.
+#
+# Federal HR law is a hierarchy, and reading only the regulation is reading the middle of an
+# argument: the statute says what Congress required, the regulation how OPM implemented it,
+# the notice why it changed, guidance how OPM says to read it, and the printed volume is the
+# record of last resort. Authority is ordered (statute 1 .. archival 5) and stored on every
+# chunk, so retrieval can refuse to let a fact sheet outrank the law it summarises.
+#
+# Off by default because each reaches a different public API, and a clone that fails on its
+# first run because of a network it never asked to use is a clone nobody evaluates.
+# `warrant corpus build` gives the full P0 corpus with none of these enabled;
+# `warrant corpus ingest --source usc` is the opt-in.
+sources:
+  federal_register:            # authority 3 -- notices, and the reasoning behind amendments
+    enabled: false
+    cache_dir: "data/federal_register"
+    parts: ["630"]             # the join to the eCFR corpus, by amended CFR part
+    published_since: "2000-01-01"
+    term: ""
+    max_documents: 200
+  usc:                         # authority 1 -- statute; binds hardest
+    enabled: false
+    cache_dir: "data/usc"
+    title: "5"
+    chapters: ["63"]           # leave: the statute behind 5 CFR 630
+    sections: []
+    # Empty discovers the current release point from the OLRC download page. A value like
+    # "119-102" pins it, which is what makes an ingest reproducible; left open so a first
+    # run works without looking anything up.
+    release_point: ""
+  opm:                         # authority 4 -- guidance; explains, does not bind
+    enabled: false
+    cache_dir: "data/opm"
+    urls: []                   # empty uses sources.html.OPM_FACT_SHEETS
+    ttl_hours: 24.0
+  govinfo:                     # authority 5 -- archival scans, recovered by OCR
+    enabled: false
+    cache_dir: "data/govinfo"
+    ocr: true
+    # package/granule. Listed, not swept: a printed volume is 300 MB and this tier
+    # corroborates a citation rather than supplying one.
+    granules: []

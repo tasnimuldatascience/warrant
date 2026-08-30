@@ -14,6 +14,7 @@ from warrant.retrieve.hybrid import (
     MAX_QUERY_TOKENS,
     Retriever,
     fts_query,
+    fuse,
     reciprocal_rank_fusion,
 )
 from warrant.retrieve.scope import GOVERNMENT_WIDE, Scope
@@ -187,3 +188,31 @@ def test_deduplication_preserves_order_and_content():
     actually typed first, and truncation should drop the tail, not a random subset."""
     assert fts_query("annual leave annual restored leave") == (
         '"annual" OR "leave" OR "restored"')
+
+
+def test_fusion_breaks_exact_ties_by_authority():
+    """RRF sums a handful of reciprocals, so two candidates holding the same rank in the
+    same lists get byte-identical scores -- ties are the common case, not the exception.
+    They were being broken by version_id, which is deterministic and arbitrary. Among
+    candidates the ranking genuinely cannot separate, the statute should win."""
+    from warrant.sources.base import AUTHORITY_GUIDANCE, AUTHORITY_STATUTE
+
+    # "zzz" sorts last by id, so id-ordering alone would rank it below the fact sheet.
+    fused = fuse([["opm-sheet", "zzz-statute"], ["zzz-statute", "opm-sheet"]],
+                 authority={"zzz-statute": AUTHORITY_STATUTE,
+                            "opm-sheet": AUTHORITY_GUIDANCE})
+    assert fused[0].version_id == "zzz-statute"
+    assert fused[0].score == fused[1].score, "this must be a tie, or the test proves nothing"
+
+
+def test_authority_never_reorders_candidates_that_are_not_tied():
+    """The tie-break is defensible precisely because it is only a tie-break. An authority
+    prior applied to unequal scores is a real ranking change and would have to be measured
+    before it could be defended -- this must not quietly grow into that."""
+    from warrant.sources.base import AUTHORITY_GUIDANCE, AUTHORITY_STATUTE
+
+    # The guidance page is ranked first by both retrievers; the statute appears once.
+    fused = fuse([["opm-sheet", "a-statute"], ["opm-sheet"]],
+                 authority={"a-statute": AUTHORITY_STATUTE,
+                            "opm-sheet": AUTHORITY_GUIDANCE})
+    assert fused[0].version_id == "opm-sheet"

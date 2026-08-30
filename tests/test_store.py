@@ -207,3 +207,33 @@ def test_a_replay_and_a_live_request_do_not_share_a_cache_entry():
                                    system_time="2020-06-01T00:00:00+00:00")
         assert len(live) == 1
         assert past == set(), "belief at 2020-06 predates the insert"
+
+
+def test_max_authority_reads_as_no_weaker_than(store: Store):
+    """Statute is 1 and archival OCR is 5, so the filter is `<=` on a number that grows as
+    the source gets weaker. That inversion is a genuine trap and the reason the clause is
+    built in one place rather than written out at each call site."""
+    from warrant.sources.base import AUTHORITY_GUIDANCE, AUTHORITY_STATUTE
+
+    statute = chunk("6304#d", "an employee shall schedule", "2020-01-01")
+    guidance = chunk("fact-sheet#p1", "you should schedule your leave", "2020-01-01")
+    object.__setattr__(statute, "authority", AUTHORITY_STATUTE)
+    object.__setattr__(statute, "source", "usc")
+    object.__setattr__(guidance, "authority", AUTHORITY_GUIDANCE)
+    object.__setattr__(guidance, "source", "opm")
+    store.add([statute, guidance])
+
+    assert len(store.candidate_ids(valid_date="2024-01-01")) == 2
+    assert len(store.candidate_ids(valid_date="2024-01-01", max_authority=2)) == 1
+    assert len(store.candidate_ids(valid_date="2024-01-01", sources=["opm"])) == 1
+    assert len(store.candidate_ids(valid_date="2024-01-01", sources=["usc", "opm"])) == 2
+
+
+def test_the_admitted_set_cache_keys_on_the_authority_filter(store: Store):
+    """Two filters, one cache. Sharing an entry between them would serve a statute-only
+    ranking to a request that asked for everything, and only under load."""
+    store.add([chunk("630.306#a", "text", "2020-01-01")])
+    everything = store.candidate_ids(valid_date="2024-01-01")
+    statute_only = store.candidate_ids(valid_date="2024-01-01", max_authority=1)
+    assert len(everything) == 1
+    assert statute_only == set(), "a regulation is authority 2 and must not pass max_authority=1"
