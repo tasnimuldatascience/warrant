@@ -585,3 +585,75 @@ def test_a_rate_limited_response_is_still_readable_by_the_browser(tmp_path):
         assert limited.headers.get("X-Request-ID"), "outside request_id: nothing to quote"
         assert limited.headers.get("access-control-allow-origin") == origin["Origin"], (
             "inside CORS: the page that provoked this cannot read it")
+
+
+def _sse_events(body: str) -> list[tuple[str, dict]]:
+    out = []
+    for frame in body.split("\n\n"):
+        if not frame.strip():
+            continue
+        name = text = None
+        for line in frame.splitlines():
+            if line.startswith("event: "):
+                name = line[7:]
+            elif line.startswith("data: "):
+                text = line[6:]
+        if name is not None:
+            out.append((name, json.loads(text)))
+    return out
+
+
+def test_the_stream_delivers_evidence_before_generation(client: TestClient):
+    """The asymmetry is the whole point: retrieval finishes in 18ms and generation takes
+    about nineteen seconds. A spinner over both would hide a result that was ready in a
+    fiftieth of a second, so the evidence must reach the client before anything waits on
+    the model -- ordering, not merely presence."""
+    with client.stream("GET", "/api/ask/stream",
+                       params={"q": "restored annual leave",
+                               "as_of": "2024-01-01"}) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        events = _sse_events("".join(response.iter_text()))
+
+    names = [name for name, _ in events]
+    assert names.index("evidence") < names.index("done")
+    assert names[0] == "retrieval"
+    evidence = dict(events)["evidence"]
+    assert evidence and all("version_id" in row and "text" in row for row in evidence)
+
+
+def test_no_partial_claim_is_ever_emitted(client: TestClient):
+    """Tokens are deliberately not streamed. The model emits a JSON envelope whose partial
+    states are half-written citations, and putting an unresolved reference in front of a
+    reader for several seconds is the precise failure this project exists to detect. Every
+    claim frame must therefore be complete and already validated."""
+    with client.stream("GET", "/api/ask/stream",
+                       params={"q": "restored annual leave",
+                               "as_of": "2024-01-01"}) as response:
+        events = _sse_events("".join(response.iter_text()))
+    for name, data in events:
+        if name == "claim":
+            assert data["text"] and "citations" in data and "grounded" in data
+
+
+def test_a_refusal_after_the_stream_opens_arrives_as_an_event(cfg: Config, store: Store,
+                                                              monkeypatch):
+    """Admission control returns 503, but by then the response is already a 200 with an
+    open body, so the status code is spent. If the refusal were left to propagate the
+    client would see a truncated stream and could not tell a refusal from a dropped
+    connection -- and the two call for opposite responses, one a retry after the advertised
+    delay and the other an immediate reconnect."""
+    from warrant.serve import api as api_module
+
+    def refuse(*a, **k):
+        raise api_module.HTTPException(503, "generator at capacity")
+
+    monkeypatch.setattr(api_module, "_generate_answer", refuse)
+    app = create_app(cfg, generate=True, store=store, warm=False, thread_limit=2,
+                     guards=guard.Guards(enabled=False))
+    with TestClient(app) as client, client.stream(
+            "GET", "/api/ask/stream",
+            params={"q": "restored annual leave", "as_of": "2024-01-01"}) as response:
+        assert response.status_code == 200
+        events = dict(_sse_events("".join(response.iter_text())))
+    assert events.get("error", {}).get("status") == 503

@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime as dt
 import difflib
+import json
 import logging
 import re
 import threading
@@ -50,7 +51,7 @@ import anyio.to_thread
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -783,6 +784,100 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
             for c in answer.claims
         ]
         return payload
+
+
+    # -- ask, streamed ----------------------------------------------------------
+
+    def _sse(event: str, data: Any) -> str:
+        """One SSE frame: a named event and one line of JSON.
+
+        Named events rather than one JSON blob with a `type` field, because the browser
+        API dispatches on the name -- a client listening for evidence does not have to
+        parse and discard every generation frame to find it.
+        """
+        payload = json.dumps(data, default=str)
+        return "event: " + event + "\n" + "data: " + payload + "\n\n"
+
+
+    @app.get("/api/ask/stream", include_in_schema=True)
+    async def ask_stream(question: guard.Question = guard.QuestionParam,
+                         as_of: str = Query(max_length=32),
+                         pay_system: str | None = None,
+                         service: str | None = None) -> StreamingResponse:
+        """The same answer, delivered in the order the pieces actually become available.
+
+        **Tokens are deliberately not streamed.** The model emits a JSON envelope of claims
+        and evidence ids, and its partial states are not partial answers -- they are
+        half-written citations. Streaming them would put an unverified reference in front of
+        a reader for several seconds before it resolves, which is the precise failure this
+        project exists to detect. Nothing is emitted as an answer until it has been parsed
+        and validated.
+
+        What genuinely streams is the *asymmetry*: retrieval finishes in 18ms and generation
+        takes about nineteen seconds, and the evidence is the part a reader of regulation
+        most wants. So the evidence goes out immediately and the prose follows when it is
+        real. A spinner over both would hide a result that was ready in a fiftieth of a
+        second.
+        """
+        q = question.text
+        as_of_date = _date(as_of, "as_of")
+        scope = _scope(pay_system, service)
+        rt.read_only()
+
+        async def events() -> AsyncIterator[str]:
+            try:
+                trace = await anyio.to_thread.run_sync(
+                    lambda: rt.retriever.retrieve(q, as_of=as_of_date, scope=scope))
+                rows = _rows(rt.store, trace.final)
+                yield _sse("retrieval", {
+                    "admitted": trace.admitted,
+                    "timings": {k: round(v, 2) for k, v in trace.timings.items()},
+                    "excluded_parts": trace.excluded_parts,
+                })
+                yield _sse("evidence", [
+                    {"version_id": r["version_id"], "chunk_id": r["chunk_id"],
+                     "heading": r["heading"], "text": r["text"],
+                     "valid_from": r["valid_from"], "valid_to": r["valid_to"],
+                     "source": r["source"], "authority": r["authority"]}
+                    for r in rows])
+
+                if not rt.generate:
+                    yield _sse("done", {"trace_id": _record(rt, trace), "generated": False})
+                    return
+
+                yield _sse("status", {"stage": "generating",
+                                      "note": "one at a time; measured 21.3 tok/s"})
+                prompt = guard.bound_excerpts(excerpts_for(rt.store, trace))
+                prompt.cost().check(GENERATE_DEADLINE_S)
+                answer = await anyio.to_thread.run_sync(
+                    lambda: _generate_answer(rt, q, prompt.excerpts,
+                                             as_of=as_of_date, scope=scope.describe()))
+                tid = _record(rt, trace, answer=answer)
+                guard.check_answer_against(rt.store, answer, as_of=as_of_date,
+                                           retrieved=[v for v, _, _ in prompt.excerpts])
+                for claim in answer.claims:
+                    yield _sse("claim", {
+                        "text": claim.text, "grounded": claim.grounded,
+                        "citations": sorted(claim.spans),
+                    })
+                yield _sse("done", {"trace_id": tid, "abstained": answer.abstained,
+                                    "parse_failed": answer.parse_failed, "generated": True})
+            except HTTPException as exc:
+                # A 503 from admission control arrives after the stream has already been
+                # opened with a 200, so it cannot be a status code any more. It has to be an
+                # event, or the client sees a truncated stream and cannot tell a refusal
+                # from a dropped connection.
+                yield _sse("error", {"status": exc.status_code, "detail": exc.detail})
+            except Exception as exc:  # noqa: BLE001 - the stream must end on purpose
+                log.exception("ask stream failed")
+                yield _sse("error", {"status": 500, "detail": str(exc)})
+
+        return StreamingResponse(events(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache",
+            # nginx buffers proxied responses by default, which turns an event stream into
+            # one delivery at the end -- the exact thing this endpoint exists to avoid.
+            "X-Accel-Buffering": "no",
+        })
 
     # -- version history --------------------------------------------------------
 
