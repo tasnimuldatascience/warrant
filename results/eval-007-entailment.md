@@ -617,3 +617,59 @@ Confidence is calibrated. Premises are named by `version_id` and can be read out
 | adv-52 | 630.906 | A leave recipient must exhaust his or her own annual leave before using donated leave. | **N** | span | contradicted | **NLI** |
 
 NLI right 35, align right 6, neither 0
+
+---
+
+## Reproduced — 2026-08-30
+
+The appendix above is now `benchmarks/entailment.yaml`, scored by
+`warrant.eval.entailment`. Evidence is written `section#anchor` with the date the premise was
+read at and resolved against `data/warrant.sqlite3` at load time; **an anchor that does not
+resolve raises rather than being skipped**, because a pair that silently stops being scored
+shrinks the set while the reported `n` keeps counting what the file says. All 182 pairs
+resolve, over 91 sections, with the class balance this document tabulates.
+
+Re-run against the same checkpoint, from the store rather than from the table:
+
+| number | published here | re-run |
+|---|---:|---:|
+| generator micro | 86.8% (112/129) | **86.8%** (112/129) |
+| generator 95% CI | 80.8–92.5 | **80.8–92.5** |
+| generator macro | 60.1% | **60.1%** |
+| generator per class | 99/102 · 12/24 · 1/3 | **99/102 · 12/24 · 1/3** |
+| adversarial micro | 88.7% (47/53) | **88.7%** (47/53) |
+| adversarial 95% CI | 78.4–96.6 | **78.4–96.6** |
+| adversarial macro | 89.0% | **89.0%** |
+| adversarial per class | 20/21 · 9/10 · 18/22 | **20/21 · 9/10 · 18/22** |
+| pooled confusion | 119/4/0 · 6/21/7 · 4/2/19 | **identical** |
+| NLI − align, generator | +2.3, CI −2.5–7.6, 7/4, p 0.55 | **+2.3, −2.5–7.6, 7/4, p 0.55** |
+| NLI − align, adversarial | +49.1, CI 40.0–56.7, 28/2, p 8.7e-07 | **+49.1, 40.0–56.7, 28/2, p 8.7e-07** |
+| disagreements adjudicated | 41 — NLI 35, align 6, neither 0 | **41 — 35 / 6 / 0** |
+| leave-one-section-out temperatures | 1.66–1.74 | **1.657–1.737** |
+
+Everything section 1 and section 2 claim reproduces exactly. Sections 3 to 5 — calibration,
+latency, the second checkpoint — were not re-run; the benchmark scores accuracy and the two
+signals, and nothing else here has been re-measured.
+
+Three things the promotion turned up, none of which moved a number:
+
+- **The appendix could not have rebuilt the set.** 66 of its 182 claim cells are truncated at
+  the column width. The file was recovered from the run's own inputs, not retyped from the
+  table — which is the concrete form of the problem: a printed table is a record of a
+  measurement, not a re-runnable one.
+- **Premises are now read from the store, and six of them were not verbatim after all.**
+  Six of the twenty adversarial chunks had been transcribed with `§ ` dropped, a trailing
+  em dash lost, or an em dash typed as a comma — 16 of the 53 adversarial pairs. The claim
+  above that premises are verbatim chunk text was true of the generator stratum and
+  approximately true of the adversarial one. Scoring the store's text instead changes no
+  argmax and no verdict, which is why every figure in the table above still lands.
+- **Section 2 is reported at a temperature fitted on the gold labels.** The verdicts there
+  use the leave-one-section-out fit, not the shipped `CALIBRATION_TEMPERATURE = 1.72`. At the
+  shipped constant the generator delta is **+3.1 (CI −1.9–8.6, 8/4, p = 0.39)** against +2.3,
+  and the adversarial delta is unchanged at +49.1. The conclusion does not move — not
+  measurable on generator output either way — but the number a reader quotes depends on which
+  temperature was used, and the shipped one is what the serving path will apply.
+
+`pytest -m neural tests/test_entailment_bench.py` asserts the section 1 and section 2 figures
+directly, so a checkpoint, corpus or label change fails a test rather than making this
+document quietly wrong.

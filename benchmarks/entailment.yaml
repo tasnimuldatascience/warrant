@@ -1,0 +1,1603 @@
+# The eval-007 probe set: 182 hand-labelled (claim, evidence) pairs over 91 sections.
+#
+# Promoted here from the appendix of `results/eval-007-entailment.md`, where the labels
+# lived only in a markdown table -- which made every headline number in that document a
+# transcription. This repository has already carried one entailment claim ("71.3% on 148
+# hand-labelled pairs") against a set that existed nowhere, and it survived review because
+# nothing could check it. `warrant.eval.entailment` scores this file instead: the numbers
+# move when the model, the corpus or a label moves, and nothing has to be retyped.
+#
+# Evidence is written `section#anchor` with the date the premise was read at, and resolved
+# against the live store when the file loads -- the same contract `human.yaml` uses, and for
+# the same reason: a hand-written version id rots on the next rebuild. An anchor that no
+# longer resolves is an **error**, never a skipped item. A pair that silently stops being
+# scored shrinks the set without moving the reported n, which is the failure this file
+# exists to prevent.
+#
+# `as_of` is the resolved version's own `valid_from`: the one date guaranteed to select the
+# version the labeller read, whether or not that paragraph has been amended since. Premises
+# are the store's text, verbatim -- nothing here restates regulatory prose.
+#
+# Two strata, **never pooled into one headline**:
+#
+#   generator     129 pairs Qwen2.5-1.5B-Instruct actually emitted while answering the
+#                 `human.yaml` questions over real retrieved context; `question` names the
+#                 one that produced each claim, and 53 of the 56 questions produced at least
+#                 one. This is the observed distribution, and its
+#                 class balance -- 102 entail, 24 neutral, 3 contradict -- is the finding
+#                 rather than a design: the generator copies its premise.
+#   adversarial    53 author-written minimal edits of verbatim in-force chunks -- one
+#                 modality flipped, one number changed, one deadline moved. Its balance is
+#                 *chosen*, so it measures whether the contradiction channel works, never
+#                 how often this generator trips it. Pooling the two would report a mixture
+#                 whose weights nobody selected, and would hide that the model is near
+#                 chance on the generator's neutrals.
+#
+# Labels are the author's, single-annotated: no second annotator, no agreement statistic.
+# The rubric is under "Labelling rubric" in the results doc, stated so a reader can disagree
+# with a named pair rather than with the number.
+
+# --- generator: 129 pairs the model emitted --------------------------------------
+
+- id: gen-0
+  stratum: generator
+  evidence: '315.905#p1'
+  as_of: '2017-01-01'
+  label: entail
+  question: probation-length
+  claim: The probationary period for a new federal employee is determined by the head of each agency.
+
+- id: gen-1
+  stratum: generator
+  evidence: '315.905#p1'
+  as_of: '2017-01-01'
+  label: entail
+  question: probation-length
+  claim: An agency may establish different probationary periods for different occupations or a single
+    one for all agency employees.
+
+- id: gen-2
+  stratum: generator
+  evidence: '315.906#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: probation-credit
+  claim: If the former position was supervisory and the new position managerial, service counts in
+    the manner prescribed by agency regulation.
+
+- id: gen-3
+  stratum: generator
+  evidence: '315.907#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: probation-fail
+  claim: An employee who, for reasons of supervisory or managerial performance, does not satisfactorily
+    complete the probationary period is entitled to be assigned, except as provided in paragraph (b)
+    of this section, to a position in the agency of no lower grade and pay than the one the employee
+    left to accept the supervisory or managerial position.
+
+- id: gen-4
+  stratum: generator
+  evidence: '315.907#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: probation-fail
+  claim: Satisfactory completion of the prescribed probationary period is a prerequisite to continued
+    service in the position. An employee who, for reasons of supervisory or managerial performance,
+    does not satisfactorily complete the probationary period is entitled to be assigned, except as
+    provided in paragraph (b) of this section, to a position in the agency of no lower grade and pay
+    than the one the employee left to accept the supervisory or managerial position.
+
+- id: gen-5
+  stratum: generator
+  evidence: '316.301#c-1'
+  as_of: '2026-08-25'
+  label: entail
+  question: term-appointment-length
+  claim: An agency may make a term appointment for a period of more than 1 year but not more than
+    10 years to a covered position defined in (2) when the need for an employee's services is not
+    permanent.
+
+- id: gen-6
+  stratum: generator
+  evidence: '316.301#c-1'
+  as_of: '2026-08-25'
+  label: entail
+  question: term-appointment-length
+  claim: No appointment made under this section may last longer than 10 years from the date of the
+    initial appointment.
+
+- id: gen-7
+  stratum: generator
+  evidence: '432.102#f-1'
+  as_of: '2026-03-09'
+  label: entail
+  question: term-probation
+  claim: An employee in the competitive service who is serving a probationary or trial period under
+    an initial appointment;
+
+- id: gen-8
+  stratum: generator
+  evidence: '316.304#a'
+  as_of: '2025-06-24'
+  label: entail
+  question: term-probation
+  claim: The first year of service of a term employee is a probationary period regardless of the method
+    of appointment.
+
+- id: gen-9
+  stratum: generator
+  evidence: '316.401#a'
+  as_of: '2017-01-01'
+  label: neutral
+  question: temporary-appointment
+  claim: An agency may make a temporary appointment under part 332 of this chapter, by using competitive
+    procedures, or under part 337 of this chapter, by using direct-hire procedures, as appropriate.
+
+- id: gen-10
+  stratum: generator
+  evidence: '316.402#a'
+  as_of: '2026-08-25'
+  label: entail
+  question: temporary-appointment
+  claim: An agency may make a temporary appointment under part 332 of this chapter, by using competitive
+    procedures, or under part 337 of this chapter, by using direct-hire procedures, as appropriate.
+
+- id: gen-11
+  stratum: generator
+  evidence: '316.402#b'
+  as_of: '2026-08-25'
+  label: entail
+  question: temporary-appointment
+  claim: 'In accordance with the time limits in § 316.401, an agency may give a noncompetitive temporary
+    appointment, without regard to the requirements of parts 332 and 333 of this chapter, to an individual
+    who is qualified for the position and who is eligible for:'
+
+- id: gen-12
+  stratum: generator
+  evidence: '315.201#b'
+  as_of: '2026-03-23'
+  label: entail
+  question: career-tenure-service
+  claim: The service requirement for career tenure includes service as described in paragraph (b)(1)
+    of this section.
+
+- id: gen-13
+  stratum: generator
+  evidence: '315.201#b'
+  as_of: '2026-03-23'
+  label: entail
+  question: career-tenure-service
+  claim: Total at least 3 years.
+
+- id: gen-14
+  stratum: generator
+  evidence: '317.703#d-2'
+  as_of: '2017-01-01'
+  label: entail
+  question: reinstatement
+  claim: An agency may voluntarily reinstate a former Presidential appointee without an order from
+    OPM directing such action.
+
+- id: gen-15
+  stratum: generator
+  evidence: '890.1052#p1'
+  as_of: '2017-01-01'
+  label: entail
+  question: reinstatement
+  claim: 'OPM shall reinstate a provider without a reinstatement application if:'
+
+- id: gen-16
+  stratum: generator
+  evidence: '315.612#d'
+  as_of: '2024-02-28'
+  label: entail
+  question: military-spouse
+  claim: A spouse is eligible for noncompetitive appointment
+
+- id: gen-17
+  stratum: generator
+  evidence: '315.612#d-iii-4'
+  as_of: '2024-02-28'
+  label: entail
+  question: military-spouse
+  claim: Any law, Executive order, or regulation that disqualifies an applicant for appointment also
+    disqualifies a spouse for appointment under this section
+
+- id: gen-18
+  stratum: generator
+  evidence: '335.103#a'
+  as_of: '2024-08-26'
+  label: entail
+  question: merit-promotion
+  claim: An agency may make promotions under § 335.102 of this part only to positions for which the
+    agency has adopted and is administering a program designed to insure a systematic means of selection
+    for promotion according to merit.
+
+- id: gen-19
+  stratum: generator
+  evidence: '335.103#b'
+  as_of: '2024-08-26'
+  label: entail
+  question: merit-promotion
+  claim: Each agency must establish procedures for promoting employees that are based on merit and
+    are available in writing to candidates.
+
+- id: gen-20
+  stratum: generator
+  evidence: '335.102#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: promote-reassign
+  claim: (Agency authority to promote, demote, or reassign) (a) Promote, demote, or reassign a career
+    or career-conditional employee;
+
+- id: gen-21
+  stratum: generator
+  evidence: '335.102#e'
+  as_of: '2017-01-01'
+  label: entail
+  question: promote-reassign
+  claim: (Agency authority to promote, demote, or reassign) (e) Promote, demote, or reassign a term
+    employee serving on a given project to another position within the project which the agency has
+    been authorized to fill by term appointment;
+
+- id: gen-22
+  stratum: generator
+  evidence: '335.102#d'
+  as_of: '2017-01-01'
+  label: entail
+  question: promote-reassign
+  claim: '(Agency authority to promote, demote, or reassign) (d) Promote, demote, or reassign (1)
+    a status quo employee and (2) an employee serving under an indefinite appointment in a competitive
+    position, except that this authority may not be used to move an employee:'
+
+- id: gen-23
+  stratum: generator
+  evidence: '335.102#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: promote-reassign
+  claim: (Agency authority to promote, demote, or reassign) (c) Promote, demote, or reassign an employee
+    serving under an overseas limited appointment of indefinite duration or an overseas limited term
+    appointment to another position to which an initial appointment under § 301.201, § 301.202, or
+    § 301.203 of this chapter is authorized;
+
+- id: gen-24
+  stratum: generator
+  evidence: '351.402#b'
+  as_of: '2026-08-25'
+  label: entail
+  question: rif-competitive-area
+  claim: A competitive area must be defined solely in terms of the agency's organizational unit(s)
+    and geographical location.
+
+- id: gen-25
+  stratum: generator
+  evidence: '351.402#b'
+  as_of: '2026-08-25'
+  label: entail
+  question: rif-competitive-area
+  claim: A competitive area may consist of all or part of an agency.
+
+- id: gen-26
+  stratum: generator
+  evidence: '351.402#b'
+  as_of: '2026-08-25'
+  label: entail
+  question: rif-competitive-area
+  claim: The minimum competitive area is a subdivision of the agency under separate administration
+    within the local commuting area.
+
+- id: gen-27
+  stratum: generator
+  evidence: '351.404#a'
+  as_of: '2017-01-01'
+  label: neutral
+  question: rif-retention-register
+  claim: An agency must establish a retention register for a competitive level.
+
+- id: gen-28
+  stratum: generator
+  evidence: '351.404#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: rif-retention-register
+  claim: The retention register is prepared from the current retention records of employees.
+
+- id: gen-29
+  stratum: generator
+  evidence: '351.601#a'
+  as_of: '2017-01-01'
+  label: contradict
+  question: rif-order-competitive
+  claim: Employees are retained in a RIF in the competitive service in the inverse order of retention
+    standing.
+
+- id: gen-30
+  stratum: generator
+  evidence: '351.601#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: rif-order-competitive
+  claim: 'An agency may not release a competing employee from a competitive level while retaining
+    in that level an employee with lower retention standing except:'
+
+- id: gen-31
+  stratum: generator
+  evidence: '351.608#f'
+  as_of: '2017-01-01'
+  label: neutral
+  question: rif-length-of-service
+  claim: Service in the former position counts toward completion of the probationary period in the
+    new position.
+
+- id: gen-32
+  stratum: generator
+  evidence: '351.608#f'
+  as_of: '2017-01-01'
+  label: neutral
+  question: rif-length-of-service
+  claim: If the former position was supervisory and the new position managerial, service counts in
+    the manner prescribed by agency regulation.
+
+- id: gen-33
+  stratum: generator
+  evidence: '351.608#g-1'
+  as_of: '2017-01-01'
+  label: neutral
+  question: rif-performance-credit
+  claim: An agency may provide for a cutoff date, a specified number of days prior to the issuance
+    of reduction in force notices after which no new ratings of record will be put on record and used
+    for purposes of this subpart.
+
+- id: gen-34
+  stratum: generator
+  evidence: '351.608#g-1'
+  as_of: '2017-01-01'
+  label: neutral
+  question: rif-performance-credit
+  claim: When a cutoff date is used, an employee will receive performance credit for the three most
+    recent ratings of record received during the 4-year period prior to the cutoff date.
+
+- id: gen-35
+  stratum: generator
+  evidence: '351.804#b'
+  as_of: '2017-01-01'
+  label: entail
+  question: rif-notice
+  claim: An agency may not take the action before the effective date in the notice;
+
+- id: gen-36
+  stratum: generator
+  evidence: '351.805#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: rif-notice
+  claim: The agency must give an employee an amended written notice and allow the employee to decide
+    whether to accept a better offer of assignment under subpart G of this part that becomes available
+    before or on the effective date of the reduction in force.
+
+- id: gen-37
+  stratum: generator
+  evidence: '351.604#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: rif-furlough
+  claim: An agency may furlough a competing employee only when it intends within 1 year to recall
+    the employee to duty in the position from which furloughed.
+
+- id: gen-38
+  stratum: generator
+  evidence: '351.604#d'
+  as_of: '2017-01-01'
+  label: entail
+  question: rif-furlough
+  claim: When an agency recalls employees to duty in the competitive level from which furloughed,
+    it shall recall them in the order of their retention standing, beginning with highest standing
+    employee.
+
+- id: gen-39
+  stratum: generator
+  evidence: '353.201#p1'
+  as_of: '2017-01-01'
+  label: entail
+  question: userra-covered
+  claim: The Uniformed Services Employment and Reemployment Rights Act of 1994 revised and strengthened
+    the existing Veterans' Reemployment Rights law
+
+- id: gen-40
+  stratum: generator
+  evidence: '353.201#p1'
+  as_of: '2017-01-01'
+  label: entail
+  question: userra-covered
+  claim: The new law applies to persons exercising restoration rights on or after December 12, 1994.
+
+- id: gen-41
+  stratum: generator
+  evidence: '353.207#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: userra-apply
+  claim: An employee returning from the uniformed services following an absence of more than 30 days
+    is entitled to be restored as soon as possible after making application, but in no event later
+    than 30 days after receipt of the application by the agency.
+
+- id: gen-42
+  stratum: generator
+  evidence: '353.205#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: userra-apply
+  claim: (c) If the period of service was for more than 180 days, the employee must submit an application
+    for reemployment not later than 90 days after completing the period of service.
+
+- id: gen-43
+  stratum: generator
+  evidence: '353.207#a'
+  as_of: '2017-01-01'
+  label: neutral
+  question: userra-position
+  claim: An employee is entitled to be restored as soon as possible after making application, but
+    in no event later than 30 days after receipt of the application by the agency.
+
+- id: gen-44
+  stratum: generator
+  evidence: '630.504#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: userra-position
+  claim: The employing agency shall certify his or her leave account for credit or charge.
+
+- id: gen-45
+  stratum: generator
+  evidence: '410.309#b-2'
+  as_of: '2017-01-01'
+  label: entail
+  question: training-service-agreement
+  claim: An employee selected for training subject to an agency continued service agreement must sign
+    an agreement to continue in service after training.
+
+- id: gen-46
+  stratum: generator
+  evidence: '410.309#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: training-service-agreement
+  claim: With a signed agreement, the agency has a right to recover training costs, except pay or
+    other compensation, if the employee voluntarily separates from Government service.
+
+- id: gen-47
+  stratum: generator
+  evidence: '410.308#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: training-degree
+  claim: An agency may authorize training for an employee to obtain an academic degree under conditions
+    prescribed at 5 U.S.C. 4107(a).
+
+- id: gen-48
+  stratum: generator
+  evidence: '410.308#e'
+  as_of: '2017-01-01'
+  label: entail
+  question: training-degree
+  claim: On a periodic basis, OPM may request agency information on the use and effectiveness of training
+    assignments under this section.
+
+- id: gen-49
+  stratum: generator
+  evidence: '430.206#a'
+  as_of: '2026-08-06'
+  label: entail
+  question: appraisal-period
+  claim: An appraisal program shall designate an official appraisal period for which a performance
+    plan shall be prepared, during which performance shall be monitored, and for which a rating of
+    record shall be prepared.
+
+- id: gen-50
+  stratum: generator
+  evidence: '430.204#b-3-i'
+  as_of: '2017-01-01'
+  label: entail
+  question: appraisal-period
+  claim: The length of the appraisal period (as specified in § 430.206(a)).
+
+- id: gen-51
+  stratum: generator
+  evidence: '430.207#a'
+  as_of: '2026-08-06'
+  label: entail
+  question: appraisal-minimum
+  claim: An appraisal program shall establish a minimum period of performance that must be completed
+    before a performance rating may be prepared.
+
+- id: gen-52
+  stratum: generator
+  evidence: '430.208#i'
+  as_of: '2026-08-25'
+  label: neutral
+  question: rating-performance
+  claim: An agency must not produce or change retroactively a rating of record that covers an earlier
+    appraisal period except that a rating of record may be changed.
+
+- id: gen-53
+  stratum: generator
+  evidence: '430.208#h'
+  as_of: '2026-08-25'
+  label: entail
+  question: rating-performance
+  claim: Each rating of record must cover a specified appraisal period.
+
+- id: gen-54
+  stratum: generator
+  evidence: '430.309#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: rating-performance
+  claim: Once the appropriate conditions are met, the agency will then prepare the annual summary
+    rating.
+
+- id: gen-55
+  stratum: generator
+  evidence: '432.102#a'
+  as_of: '2026-03-09'
+  label: entail
+  question: unacceptable-coverage
+  claim: Actions covered include reduction in grade and removal of employees based on unacceptable
+    performance.
+
+- id: gen-56
+  stratum: generator
+  evidence: '432.102#a'
+  as_of: '2026-03-09'
+  label: entail
+  question: unacceptable-coverage
+  claim: This part covers reduction in grade and removal of employees based on unacceptable performance.
+
+- id: gen-57
+  stratum: generator
+  evidence: '432.105#a-4'
+  as_of: '2022-12-12'
+  label: entail
+  question: unacceptable-proposing
+  claim: 'An employee whose reduction in grade or removal is proposed under this part is entitled
+    to:'
+
+- id: gen-58
+  stratum: generator
+  evidence: '432.105#a-1'
+  as_of: '2022-12-12'
+  label: entail
+  question: unacceptable-proposing
+  claim: Once an employee has been afforded a reasonable opportunity to demonstrate acceptable performance
+    pursuant to § 432.104, an agency may propose a reduction-in-grade or removal action if the employee's
+    performance during or following the opportunity to demonstrate acceptable performance is unacceptable
+    in one or more of the critical elements for which the employee was afforded an opportunity to
+    demonstrate acceptable performance.
+
+- id: gen-59
+  stratum: generator
+  evidence: '451.103#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: awards-program
+  claim: An agency award program shall provide for...
+
+- id: gen-60
+  stratum: generator
+  evidence: '451.103#b'
+  as_of: '2017-01-01'
+  label: entail
+  question: awards-program
+  claim: Agencies are encouraged to involve employees in developing such programs.
+
+- id: gen-61
+  stratum: generator
+  evidence: '451.105#b'
+  as_of: '2017-01-01'
+  label: entail
+  question: awards-restrictions
+  claim: In accordance with 5 U.S.C. 4509, agencies shall not grant cash awards under this subpart
+    to employees appointed by the President with Senate confirmation who serve in...
+
+- id: gen-62
+  stratum: generator
+  evidence: '451.104#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: awards-restrictions
+  claim: An agency may grant a cash, honorary, or informal recognition award, or grant time-off without
+    charge to leave or loss of pay consistent with chapter 45 of title 5, United States Code, and
+    this part to an employee, as an individual or member of a group, on the basis of...
+
+- id: gen-63
+  stratum: generator
+  evidence: '531.610#i'
+  as_of: '2017-01-01'
+  label: entail
+  question: awards-restrictions
+  claim: Performance-based cash awards under 5 U.S.C. 4505a and 5 CFR part 451, subpart A, when such
+    awards are computed as a percentage of an employee's rate of basic pay;
+
+- id: gen-64
+  stratum: generator
+  evidence: '630.1403#b-2'
+  as_of: '2025-01-16'
+  label: entail
+  question: awards-restrictions
+  claim: As a reward to recognize the performance or contributions of an employee or group of employees
+    (i.e., in lieu of a cash award or a time-off award).
+
+- id: gen-65
+  stratum: generator
+  evidence: '531.404#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: wgi-earning
+  claim: The employee must not have received an equivalent increase during the waiting period.
+
+- id: gen-66
+  stratum: generator
+  evidence: '531.404#a-2'
+  as_of: '2017-01-01'
+  label: entail
+  question: wgi-earning
+  claim: The rating of record used as the basis for an acceptable level of competence determination
+    for a within-grade increase must have been assigned no earlier than the most recently completed
+    appraisal period.
+
+- id: gen-67
+  stratum: generator
+  evidence: '531.404#p1'
+  as_of: '2017-01-01'
+  label: entail
+  question: wgi-earning
+  claim: 'An employee paid at less than the maximum rate of the grade of his or her position shall
+    earn advancement in pay to the next higher step of the grade or the next higher rate within the
+    grade (as defined in § 531.403) upon meeting the following three requirements established by law:'
+
+- id: gen-68
+  stratum: generator
+  evidence: '532.417#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: wgi-earning
+  claim: 'Creditable service. The following periods of time shall be considered creditable service
+    for purposes of waiting periods for within-grade increases:'
+
+- id: gen-69
+  stratum: generator
+  evidence: '531.405#b-2'
+  as_of: '2017-01-01'
+  label: neutral
+  question: wgi-waiting
+  claim: The waiting period for within-grade increases varies depending on the position.
+
+- id: gen-70
+  stratum: generator
+  evidence: '532.417#c'
+  as_of: '2017-01-01'
+  label: neutral
+  question: wgi-waiting
+  claim: The waiting period for within-grade increases varies depending on the position.
+
+- id: gen-71
+  stratum: generator
+  evidence: '532.267#g'
+  as_of: '2024-02-23'
+  label: entail
+  question: wgi-waiting
+  claim: For employees with a scheduled tour of duty, the waiting period is 26 weeks between steps
+    1 and 2 and 78 weeks between steps 2 and 3.
+
+- id: gen-72
+  stratum: generator
+  evidence: '532.417#d'
+  as_of: '2017-01-01'
+  label: entail
+  question: wgi-effective
+  claim: A within-grade increase shall be effective at the beginning of the first applicable pay period
+    following the day an employee becomes eligible for the increase.
+
+- id: gen-73
+  stratum: generator
+  evidence: '531.414#b'
+  as_of: '2017-01-01'
+  label: entail
+  question: wgi-effective
+  claim: An interim within-grade increase granted under paragraph (a) of this section shall become
+    effective on the date of the appellate decision ordering interim relief under 5 U.S.C. 7701(b)(2)(A).
+
+- id: gen-74
+  stratum: generator
+  evidence: '531.504#p1'
+  as_of: '2017-01-01'
+  label: entail
+  question: quality-step-increase
+  claim: A quality step increase shall not be required but may be granted only to—
+
+- id: gen-75
+  stratum: generator
+  evidence: '531.504#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: quality-step-increase
+  claim: (a) An employee who receives a rating of record at Level 5 (“Outstanding” or equivalent),
+    as defined in part 430, subpart B, of this chapter;
+
+- id: gen-76
+  stratum: generator
+  evidence: '531.603#a'
+  as_of: '2023-12-18'
+  label: entail
+  question: locality-areas
+  claim: Locality rates of pay under this subpart shall be payable to employees whose official worksites
+    are located in the locality pay areas listed in paragraph (b) of this section.
+
+- id: gen-77
+  stratum: generator
+  evidence: '531.604#b-2'
+  as_of: '2017-01-01'
+  label: entail
+  question: locality-areas
+  claim: Determination of the locality pay area in which the employee's official worksite is located,
+    consistent with the locality pay areas established in § 531.603.
+
+- id: gen-78
+  stratum: generator
+  evidence: '550.706#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: severance-eligibility
+  claim: An employee who resigns because he or she expects to be involuntarily separated is considered
+    to have been involuntarily separated if the employee resigns after receiving—
+
+- id: gen-79
+  stratum: generator
+  evidence: '550.704#a'
+  as_of: '2026-06-10'
+  label: entail
+  question: severance-eligibility
+  claim: 'To be eligible for severance pay, an employee must:'
+
+- id: gen-80
+  stratum: generator
+  evidence: '550.704#b-6'
+  as_of: '2026-06-10'
+  label: entail
+  question: severance-eligibility
+  claim: Occupies a position in Schedule Policy/Career of the excepted service and his or her agency
+    identifies unacceptable performance or misconduct as the basis for separation in a written notice
+    to the employee.
+
+- id: gen-81
+  stratum: generator
+  evidence: '550.707#d'
+  as_of: '2017-01-01'
+  label: entail
+  question: severance-computation
+  claim: The severance pay fund is limited to that amount which would provide 52 weeks of severance
+    pay taking into account weeks of severance pay previously received.
+
+- id: gen-82
+  stratum: generator
+  evidence: '550.707#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: severance-computation
+  claim: 'The basic severance pay allowance consists of the following:'
+
+- id: gen-83
+  stratum: generator
+  evidence: '550.707#b'
+  as_of: '2017-01-01'
+  label: entail
+  question: severance-computation
+  claim: 'In the following circumstances, the weekly rate of basic pay used in computing the basic
+    severance pay allowance must be determined based on the weekly average for the last position held
+    by the employee during the 26 biweekly pay periods immediately preceding separation, as follows:'
+
+- id: gen-84
+  stratum: generator
+  evidence: '550.707#b-4'
+  as_of: '2017-01-01'
+  label: entail
+  question: severance-computation
+  claim: For positions with seasonal work requirements, compute the weekly average of hours in a pay
+    status (excluding overtime hours) and multiply that average by the hourly rate of basic pay in
+    effect at separation.
+
+- id: gen-85
+  stratum: generator
+  evidence: '550.203#e'
+  as_of: '2017-01-01'
+  label: entail
+  question: pay-advance
+  claim: An advance in pay may not be made to the head of an agency or to an employee appointed to
+    a position in the expectation of receiving an appointment as the head of an agency.
+
+- id: gen-86
+  stratum: generator
+  evidence: '300.103#b-2-ii'
+  as_of: '2026-07-31'
+  label: entail
+  question: pay-advance
+  claim: New employees, within a reasonable period of time and in the great majority of cases, can
+    expect to progress to a target position at a higher level.
+
+- id: gen-87
+  stratum: generator
+  evidence: '550.171#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: sunday-pay
+  claim: An employee is entitled to pay at his or her rate of basic pay plus premium pay at a rate
+    equal to 25 percent of his or her rate of basic pay for each hour of Sunday work.
+
+- id: gen-88
+  stratum: generator
+  evidence: '532.509#p1'
+  as_of: '2017-01-01'
+  label: entail
+  question: sunday-pay
+  claim: A wage employee whose regular work schedule includes a period of service of up to 8 hours
+    which is not overtime work, a part of which is on Sunday, is entitled to additional pay under
+    the provisions of section 5544 of title 5, United States Code.
+
+- id: gen-89
+  stratum: generator
+  evidence: '550.183#b'
+  as_of: '2017-01-01'
+  label: entail
+  question: availability-pay
+  claim: For the purpose of this section, regular workday means each day in the criminal investigator's
+    basic workweek during which the investigator works at least 4 hours, excluding...
+
+- id: gen-90
+  stratum: generator
+  evidence: '550.182#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: availability-pay
+  claim: To be considered to be performing work under paragraph (a) of this section, a criminal investigator
+    must be performing work as officially ordered or approved, including work performed without specific
+    supervisory preapproval, if circumstances require the criminal investigator to perform the duty
+    to meet the needs of the employing agency, subject to agency policies and procedures (including
+    any requirements for after-the-fact validation or approval).
+
+- id: gen-91
+  stratum: generator
+  evidence: '532.207#f'
+  as_of: '2021-03-31'
+  label: entail
+  question: fws-survey-cycle
+  claim: The time schedule for wage surveys specifies the beginning month of appropriated and nonappropriated
+    fund wage surveys and the fiscal year during which full-scale surveys will be conducted.
+
+- id: gen-92
+  stratum: generator
+  evidence: '532.207#a'
+  as_of: '2021-03-31'
+  label: entail
+  question: fws-survey-cycle
+  claim: Wage surveys shall be conducted on a 2-year cycle at annual intervals.
+
+- id: gen-93
+  stratum: generator
+  evidence: '532.203#b'
+  as_of: '2017-01-01'
+  label: entail
+  question: fws-schedule-structure
+  claim: Each supervisory regular wage schedule has 19 grades.
+
+- id: gen-94
+  stratum: generator
+  evidence: '532.203#a'
+  as_of: '2017-01-01'
+  label: entail
+  question: fws-schedule-structure
+  claim: Each nonsupervisory and leader regular wage schedule has 15 grades.
+
+- id: gen-95
+  stratum: generator
+  evidence: '532.203#d'
+  as_of: '2017-01-01'
+  label: entail
+  question: fws-schedule-structure
+  claim: The step 2 or payline rate for each grade of an appropriated fund supervisory regular wage
+    schedule is specified.
+
+- id: gen-96
+  stratum: generator
+  evidence: '532.203#e-1'
+  as_of: '2017-01-01'
+  label: contradict
+  question: fws-schedule-structure
+  claim: For grades NS-1 through NS-8, the rate for step 2 of the corresponding grade of the nonsupervisory
+    regular wage schedule for the area is used.
+
+- id: gen-97
+  stratum: generator
+  evidence: '317.503#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: probation-notify-2021
+  claim: The probationary period begins on the effective date of the personnel action initially appointing
+    the individual to the SES as a career appointee and ends one calendar year later.
+
+- id: gen-98
+  stratum: generator
+  evidence: '575.110#b-3'
+  as_of: '2026-02-13'
+  label: entail
+  question: probation-notify-2021
+  claim: An agency may delay a service agreement commencement date until after the employee completes
+    an initial period of formal training or required probationary period when continued employment
+    in the position is contingent on successful completion of the formal training or probationary
+    period.
+
+- id: gen-99
+  stratum: generator
+  evidence: '315.612#d'
+  as_of: '2024-02-28'
+  label: entail
+  question: military-spouse-eligibility-2019
+  claim: 'A spouse is eligible for noncompetitive appointment:'
+
+- id: gen-100
+  stratum: generator
+  evidence: '315.612#d-iii-4'
+  as_of: '2024-02-28'
+  label: entail
+  question: military-spouse-eligibility-2019
+  claim: Any law, Executive order, or regulation that disqualifies an applicant for appointment also
+    disqualifies a spouse for appointment under this section.
+
+- id: gen-101
+  stratum: generator
+  evidence: '317.301#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: unacceptable-excluded-2019
+  claim: Employees excluded from coverage of this subpart and are not entitled to conversion to the
+    Senior Executive Service.
+
+- id: gen-102
+  stratum: generator
+  evidence: '330.607#i'
+  as_of: '2017-01-01'
+  label: entail
+  question: ctap-exception-short-appointment-2019
+  claim: 'An agency may deny a CTAP eligible future selection priority if the eligible:'
+
+- id: gen-103
+  stratum: generator
+  evidence: '330.607#f'
+  as_of: '2017-01-01'
+  label: entail
+  question: ctap-exception-short-appointment-2019
+  claim: If there are two or more CTAP selection priority candidates for a vacancy, the agency may
+    place any of them.
+
+- id: gen-104
+  stratum: generator
+  evidence: '330.609#b'
+  as_of: '2026-08-25'
+  label: neutral
+  question: ctap-exception-demote-2023
+  claim: An agency may choose to consider RPL placement priority candidates before other agency permanent
+    competitive service employees under its Career Transition Assistance Plan (CTAP) established under
+    subpart F of this part, after fulfilling agency obligations to its CTAP selection priority candidates.
+
+- id: gen-105
+  stratum: generator
+  evidence: '330.609#b'
+  as_of: '2026-08-25'
+  label: neutral
+  question: ctap-exception-demote-2023
+  claim: In filling vacancies, an agency must give its RPL registrants placement priority for most
+    competitive service vacancies before hiring someone from outside its own permanent competitive
+    service workforce.
+
+- id: gen-106
+  stratum: generator
+  evidence: '315.201#b-1'
+  as_of: '2026-03-23'
+  label: entail
+  question: career-tenure-creditable-service
+  claim: 'To be creditable, the 3 years of service must begin with one of the following:'
+
+- id: gen-107
+  stratum: generator
+  evidence: '315.201#b-3'
+  as_of: '2026-03-23'
+  label: entail
+  question: career-tenure-creditable-service
+  claim: 'An employee''s creditable service must total at least 3 years, under the following conditions:'
+
+- id: gen-108
+  stratum: generator
+  evidence: '315.201#b-2'
+  as_of: '2026-03-23'
+  label: entail
+  question: career-tenure-competitive-status
+  claim: An individual may attain career tenure only when employed (or reemployed) in a permanent
+    appointment in the competitive service that provides or leads to competitive status.
+
+- id: gen-109
+  stratum: generator
+  evidence: '351.501#b-1-ii'
+  as_of: '2017-01-01'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: An individual may attain career tenure only when employed (or reemployed) in a permanent
+    appointment in the competitive service that provides or leads to competitive status.
+
+- id: gen-110
+  stratum: generator
+  evidence: '315.201#b-1-ii'
+  as_of: '2026-03-23'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: An individual may attain career tenure only when employed (or reemployed) in a permanent
+    appointment in the competitive service that provides or leads to competitive status.
+
+- id: gen-111
+  stratum: generator
+  evidence: '315.702#c'
+  as_of: '2017-01-01'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: An individual may attain career tenure only when employed (or reemployed) in a permanent
+    appointment in the competitive service that provides or leads to competitive status.
+
+- id: gen-112
+  stratum: generator
+  evidence: '315.701#e'
+  as_of: '2017-01-01'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: An individual may attain career tenure only when employed (or reemployed) in a permanent
+    appointment in the competitive service that provides or leads to competitive status.
+
+- id: gen-113
+  stratum: generator
+  evidence: '315.710#d'
+  as_of: '2017-01-01'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: An individual may attain career tenure only when employed (or reemployed) in a permanent
+    appointment in the competitive service that provides or leads to competitive status.
+
+- id: gen-114
+  stratum: generator
+  evidence: '315.201#b-1-iii'
+  as_of: '2026-03-23'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: An individual may attain career tenure only when employed (or reemployed) in a permanent
+    appointment in the competitive service that provides or leads to competitive status.
+
+- id: gen-115
+  stratum: generator
+  evidence: '315.706#c'
+  as_of: '2017-01-01'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: An individual may attain career tenure only when employed (or reemployed) in a permanent
+    appointment in the competitive service that provides or leads to competitive status.
+
+- id: gen-116
+  stratum: generator
+  evidence: '315.709#c'
+  as_of: '2017-01-01'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: An individual may attain career tenure only when employed (or reemployed) in a permanent
+    appointment in the competitive service that provides or leads to competitive status.
+
+- id: gen-117
+  stratum: generator
+  evidence: '330.101#p10'
+  as_of: '2017-01-01'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: An individual may attain career tenure only when employed (or reemployed) in a permanent
+    appointment in the competitive service that provides or leads to competitive status.
+
+- id: gen-118
+  stratum: generator
+  evidence: '315.201#b-1-iii'
+  as_of: '2026-03-23'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: A person whose employment is converted to career or career-conditional employment under this
+    section acquires a competitive status automatically on conversion.
+
+- id: gen-119
+  stratum: generator
+  evidence: '315.706#c'
+  as_of: '2017-01-01'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: A person whose employment is converted to career or career-conditional employment under this
+    section acquires a competitive status automatically on conversion.
+
+- id: gen-120
+  stratum: generator
+  evidence: '315.709#c'
+  as_of: '2017-01-01'
+  label: entail
+  question: career-tenure-competitive-status
+  claim: A person whose employment is converted to career or career-conditional employment under this
+    section acquires a competitive status automatically on conversion.
+
+- id: gen-121
+  stratum: generator
+  evidence: '330.101#p10'
+  as_of: '2017-01-01'
+  label: neutral
+  question: career-tenure-competitive-status
+  claim: A person whose employment is converted to career or career-conditional employment under this
+    section acquires a competitive status automatically on conversion.
+
+- id: gen-122
+  stratum: generator
+  evidence: '550.409#c'
+  as_of: '2017-01-01'
+  label: contradict
+  question: probation-termination-notice
+  claim: An agency must terminate evacuation payments under the conditions listed in § 550.407.
+
+- id: gen-123
+  stratum: generator
+  evidence: '890.502#b'
+  as_of: '2017-01-01'
+  label: entail
+  question: probation-termination-notice
+  claim: The employing office must tell the employee about available health benefits choices as soon
+    as it becomes aware that an employee's premium payments cannot be made because he or she will
+    be or is already in a leave without pay (LWOP) status or any other type of nonpay status.
+
+- id: gen-124
+  stratum: generator
+  evidence: '432.101#p1'
+  as_of: '2017-01-01'
+  label: entail
+  question: unacceptable-agencies-covered
+  claim: This part applies to reduction in grade and removal of employees covered by the provisions
+    of this part based solely on performance at the unacceptable level.
+
+- id: gen-125
+  stratum: generator
+  evidence: '630.306#b-1'
+  as_of: '2020-08-10'
+  label: entail
+  question: rif-restored-leave-fulltime
+  claim: A full-time employee shall schedule and use excess annual leave of 416 hours or less by the
+    end of the leave year in progress 2 years after the date the employee is no longer subject to
+    5 U.S.C. 6304(d)(3).
+
+- id: gen-126
+  stratum: generator
+  evidence: '630.306#b-1'
+  as_of: '2020-08-10'
+  label: entail
+  question: rif-restored-leave-fulltime
+  claim: The agency shall extend this period by 1 leave year for each additional 208 hours of excess
+    annual leave or any portion thereof.
+
+- id: gen-127
+  stratum: generator
+  evidence: '630.306#b-2'
+  as_of: '2020-08-10'
+  label: entail
+  question: rif-restored-leave-parttime
+  claim: A part-time employee shall schedule and use excess annual leave in an amount equal to or
+    less than 20 percent of the number of hours in the employee's scheduled annual tour of duty by
+    the end of the leave year in progress 2 years after the date the employee is no longer subject
+    to 5 U.S.C. 6304(d)(3).
+
+- id: gen-128
+  stratum: generator
+  evidence: '550.805#g-2'
+  as_of: '2017-01-01'
+  label: entail
+  question: rif-restored-leave-parttime
+  claim: The agency shall extend this period by 1 leave year for each additional number of hours of
+    excess annual leave, or any portion thereof, equal to 10 percent of the employee's scheduled annual
+    tour of duty over a period of 52 calendar weeks.
+
+
+# --- adversarial: 53 author-written minimal edits ---------------------------------
+
+- id: adv-0
+  stratum: adversarial
+  evidence: '317.402#c'
+  as_of: '2017-01-01'
+  label: entail
+  claim: Every qualifications criterion in the standard must be job related.
+
+- id: adv-1
+  stratum: adversarial
+  evidence: '317.402#c'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: The standard may emphasize agency-related experience even where doing so precludes well-qualified
+    candidates from outside the agency.
+
+- id: adv-2
+  stratum: adversarial
+  evidence: '317.402#c'
+  as_of: '2017-01-01'
+  label: neutral
+  claim: The agency must publish the qualification standard in the vacancy announcement.
+
+- id: adv-3
+  stratum: adversarial
+  evidence: '317.703#c'
+  as_of: '2017-01-01'
+  label: entail
+  claim: OPM will, so far as practicable, direct reinstatement within 45 days of the later of the
+    application's receipt and the separation date.
+
+- id: adv-4
+  stratum: adversarial
+  evidence: '317.703#c'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: OPM will direct reinstatement within 30 days of receiving the application.
+
+- id: adv-5
+  stratum: adversarial
+  evidence: '317.703#c'
+  as_of: '2017-01-01'
+  label: neutral
+  claim: The reinstated employee returns at the grade held before the Presidential appointment.
+
+- id: adv-6
+  stratum: adversarial
+  evidence: '317.703#f'
+  as_of: '2017-01-01'
+  label: entail
+  claim: An agency has at most 30 calendar days from the date of an OPM reinstatement order to comply
+    with it.
+
+- id: adv-7
+  stratum: adversarial
+  evidence: '317.703#f'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: An agency may take up to 30 business days from the date of the order to comply.
+
+- id: adv-8
+  stratum: adversarial
+  evidence: '330.213#a'
+  as_of: '2026-07-31'
+  label: entail
+  claim: An agency may vary its RPL selection method by location.
+
+- id: adv-9
+  stratum: adversarial
+  evidence: '330.213#a'
+  as_of: '2026-07-31'
+  label: contradict
+  claim: An agency may vary the selection method it uses for an individual vacancy.
+
+- id: adv-10
+  stratum: adversarial
+  evidence: '330.213#a'
+  as_of: '2026-07-31'
+  label: neutral
+  claim: An agency must keep a registrant on the RPL for one year.
+
+- id: adv-11
+  stratum: adversarial
+  evidence: '337.204#d-3'
+  as_of: '2019-05-03'
+  label: entail
+  claim: The agency head must notify OPM within 10 business days of approving the direct hire authority.
+
+- id: adv-12
+  stratum: adversarial
+  evidence: '337.204#d-3'
+  as_of: '2019-05-03'
+  label: contradict
+  claim: Notification to OPM need not describe the evidence the determination relied on.
+
+- id: adv-13
+  stratum: adversarial
+  evidence: '337.204#d-3'
+  as_of: '2019-05-03'
+  label: neutral
+  claim: OPM may revoke a direct hire authority it has approved.
+
+- id: adv-14
+  stratum: adversarial
+  evidence: '351.402#c'
+  as_of: '2026-08-25'
+  label: entail
+  claim: A competitive area in effect for fewer than 90 days before the RIF takes effect must be described
+    to OPM for approval beforehand.
+
+- id: adv-15
+  stratum: adversarial
+  evidence: '351.402#c'
+  as_of: '2026-08-25'
+  label: contradict
+  claim: A competitive area in effect for fewer than 90 days before the RIF needs no OPM approval.
+
+- id: adv-16
+  stratum: adversarial
+  evidence: '353.209#b'
+  as_of: '2017-01-01'
+  label: entail
+  claim: An employee reemployed under this subpart may not be discharged except for cause.
+
+- id: adv-17
+  stratum: adversarial
+  evidence: '353.209#b'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: An employee reemployed under this subpart may be discharged at the agency's discretion.
+
+- id: adv-18
+  stratum: adversarial
+  evidence: '353.209#b'
+  as_of: '2017-01-01'
+  label: neutral
+  claim: A reemployed employee is restored to the position he or she would have held had the service
+    not intervened.
+
+- id: adv-19
+  stratum: adversarial
+  evidence: '532.703#b-3'
+  as_of: '2017-01-01'
+  label: entail
+  claim: To get retroactive relief for a downgrading, the employee must ask for review within 15 calendar
+    days of the effective date of the change.
+
+- id: adv-20
+  stratum: adversarial
+  evidence: '532.703#b-3'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: An application involving a downgrading may be filed at any time and still carry entitlement
+    to retroactive corrective action.
+
+- id: adv-21
+  stratum: adversarial
+  evidence: '534.404#j-3-ii'
+  as_of: '2024-04-01'
+  label: entail
+  claim: The senior executive gets at least 7 days to respond to the notice.
+
+- id: adv-22
+  stratum: adversarial
+  evidence: '534.404#j-3-ii'
+  as_of: '2024-04-01'
+  label: contradict
+  claim: The senior executive must respond within 7 days of the notice.
+
+- id: adv-23
+  stratum: adversarial
+  evidence: '534.404#j-3-ii'
+  as_of: '2024-04-01'
+  label: contradict
+  claim: The response must be made in writing.
+
+- id: adv-24
+  stratum: adversarial
+  evidence: '534.604#b'
+  as_of: '2024-04-01'
+  label: entail
+  claim: An administrative appeals judge is normally appointed at rate AA-1.
+
+- id: adv-25
+  stratum: adversarial
+  evidence: '534.604#b'
+  as_of: '2024-04-01'
+  label: contradict
+  claim: An agency may set an administrative appeals judge's initial rate of basic pay at any rate
+    in the range.
+
+- id: adv-26
+  stratum: adversarial
+  evidence: '550.905#b'
+  as_of: '2017-01-01'
+  label: entail
+  claim: Hours paid availability pay under 550.181 cannot also draw a hazardous duty differential.
+
+- id: adv-27
+  stratum: adversarial
+  evidence: '550.905#b'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: An employee receiving availability pay under 550.181 may also be paid a hazardous duty differential
+    for those hours.
+
+- id: adv-28
+  stratum: adversarial
+  evidence: '550.905#b'
+  as_of: '2017-01-01'
+  label: neutral
+  claim: The hazardous duty differential is 25 percent of the employee's rate of basic pay.
+
+- id: adv-29
+  stratum: adversarial
+  evidence: '575.507#a-1'
+  as_of: '2017-01-01'
+  label: entail
+  claim: The amount is a quarter of the employee's annual basic pay at the start of the service period,
+    multiplied by the number of years in that period.
+
+- id: adv-30
+  stratum: adversarial
+  evidence: '575.507#a-1'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: The amount is 25 percent of the employee's annual rate of basic pay at the end of the service
+    period times the number of years in that period.
+
+- id: adv-31
+  stratum: adversarial
+  evidence: '591.239#b'
+  as_of: '2017-01-01'
+  label: entail
+  claim: A COLA is excluded from basic pay when overtime entitlement is computed.
+
+- id: adv-32
+  stratum: adversarial
+  evidence: '591.239#b'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: A post differential counts as part of basic pay when retirement entitlement is computed.
+
+- id: adv-33
+  stratum: adversarial
+  evidence: '630.1703#f-3'
+  as_of: '2020-10-15'
+  label: entail
+  claim: A seasonal employee cannot take paid parental leave in the agency-designated off-season.
+
+- id: adv-34
+  stratum: adversarial
+  evidence: '630.1703#f-3'
+  as_of: '2020-10-15'
+  label: contradict
+  claim: A seasonal employee may use paid parental leave during the off-season period designated by
+    the agency.
+
+- id: adv-35
+  stratum: adversarial
+  evidence: '630.1703#f-3'
+  as_of: '2020-10-15'
+  label: neutral
+  claim: Paid parental leave must be used within 12 months of the birth or placement.
+
+- id: adv-36
+  stratum: adversarial
+  evidence: '630.502#b'
+  as_of: '2017-01-01'
+  label: entail
+  claim: An employee who returns to Federal employment after December 2, 1994 is generally entitled
+    to have sick leave recredited, whenever the separation occurred.
+
+- id: adv-37
+  stratum: adversarial
+  evidence: '630.502#b'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: Sick leave is recredited only when the break in service was shorter than three years.
+
+- id: adv-38
+  stratum: adversarial
+  evidence: '890.1016#a-3'
+  as_of: '2017-01-01'
+  label: entail
+  claim: Restitution the provider has paid is left out of OPM's assessment of financial loss.
+
+- id: adv-39
+  stratum: adversarial
+  evidence: '890.1016#a-3'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: OPM offsets any restitution the provider has paid against the financial loss it finds.
+
+- id: adv-40
+  stratum: adversarial
+  evidence: '890.1040#e'
+  as_of: '2017-01-01'
+  label: entail
+  claim: Disputed facts are resolved on a preponderance of the evidence.
+
+- id: adv-41
+  stratum: adversarial
+  evidence: '890.1040#e'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: The presiding official must issue the written report within 30 days of the hearing opening.
+
+- id: adv-42
+  stratum: adversarial
+  evidence: '890.1040#e'
+  as_of: '2017-01-01'
+  label: neutral
+  claim: The suspending official may reject the presiding official's findings.
+
+- id: adv-43
+  stratum: adversarial
+  evidence: '530.304#c'
+  as_of: '2017-01-01'
+  label: entail
+  claim: The special rate supplement is normally a fixed dollar amount or fixed percentage added to
+    every GS rate in the range.
+
+- id: adv-44
+  stratum: adversarial
+  evidence: '530.304#c'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: OPM computes the special rate supplement by a fixed dollar amount or fixed percentage and
+    no alternate method is available.
+
+- id: adv-45
+  stratum: adversarial
+  evidence: '351.302#b'
+  as_of: '2017-01-01'
+  label: entail
+  claim: An employee transferred solely for liquidation, whose function was not authorized to run
+    past 60 days, does not compete for positions in the gaining competitive area.
+
+- id: adv-46
+  stratum: adversarial
+  evidence: '351.302#b'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: An employee transferred solely for liquidation competes for other positions in the gaining
+    competitive area.
+
+- id: adv-47
+  stratum: adversarial
+  evidence: '575.110#b-1'
+  as_of: '2026-02-13'
+  label: entail
+  claim: The service period ends on the last day of a pay period.
+
+- id: adv-48
+  stratum: adversarial
+  evidence: '575.110#b-1'
+  as_of: '2026-02-13'
+  label: contradict
+  claim: The service period may terminate on any day the agency chooses.
+
+- id: adv-49
+  stratum: adversarial
+  evidence: '575.110#b-1'
+  as_of: '2026-02-13'
+  label: neutral
+  claim: The agency must repay a terminated incentive on a pro rata basis.
+
+- id: adv-50
+  stratum: adversarial
+  evidence: '630.906#b'
+  as_of: '2017-01-01'
+  label: entail
+  claim: Donated annual leave moves into the leave recipient's annual leave account under the recipient
+    agency's procedures.
+
+- id: adv-51
+  stratum: adversarial
+  evidence: '630.906#b'
+  as_of: '2017-01-01'
+  label: contradict
+  claim: The transfer follows procedures established by the leave donor's employing agency.
+
+- id: adv-52
+  stratum: adversarial
+  evidence: '630.906#b'
+  as_of: '2017-01-01'
+  label: neutral
+  claim: A leave recipient must exhaust his or her own annual leave before using donated leave.

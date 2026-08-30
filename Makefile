@@ -19,6 +19,7 @@ help:
 	@echo "latency     latency vs quality per configuration"
 	@echo "autopsy     localize every failure to a stage; print the failure budget"
 	@echo "serve       run the HTTP API on :8000"
+	@echo "entailment  NLI vs span alignment on the labelled probe set"
 	@echo "gate        fail if quality regressed below the recorded floor"
 	@echo "abstention  risk-coverage, calibration, ECE"
 	@echo "test        run the unit suite (offline)"
@@ -80,3 +81,6 @@ gate:
 
 abstention:
 	$(PY) -m warrant.cli eval abstention -c $(CFG)
+
+entailment:
+	$(PY) -m warrant.cli eval entailment -c $(CFG)

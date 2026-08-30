@@ -10,6 +10,7 @@
     warrant eval gate      -c CONFIG    fail if quality regressed below the floor
     warrant eval generation -c CONFIG   hallucination, citation precision, abstention
     warrant eval abstention -c CONFIG   risk-coverage, calibration, ECE
+    warrant eval entailment -c CONFIG   NLI vs span alignment on the labelled probe set
     warrant eval latency   -c CONFIG    latency vs quality per configuration
     warrant autopsy run    -c CONFIG    localize failures; print the failure budget
     warrant replay show    TRACE_ID     what happened on one stored request
@@ -42,6 +43,9 @@ from .corpus.ingest import ingest
 from .corpus.parse import parse_sections
 from .eval import gate
 from .eval.bench import LAST_TEMPORAL_DISCARDS, mine_all
+from .eval.entailment import STRATA
+from .eval.entailment import load as load_entailment
+from .eval.entailment import score as score_entailment
 from .eval.run import score
 from .index.store import Store, now
 from .retrieve.dense import DenseIndex, uncovered
@@ -61,7 +65,12 @@ replay_app = typer.Typer(help="Stored traces and replay.", no_args_is_help=True)
 app.add_typer(autopsy_app, name="autopsy")
 app.add_typer(replay_app, name="replay")
 
-console = Console()
+# A floor on width, not a fixed width. Rich sizes to the terminal, and at the 80 columns a
+# stock Windows console reports it truncates "adversarial" to "adver..." and a confidence
+# interval to "80.9-..." -- a results table whose numbers are elided is a results table that
+# has to be re-run somewhere else to be read. 100 matches the line length the code is
+# written to plus room for the widest results table; a wider terminal still wins.
+console = Console(width=max(106, Console().width))
 
 ConfigOpt = Annotated[Path | None, typer.Option("-c", "--config", help="config YAML")]
 
@@ -652,6 +661,69 @@ def eval_abstention(config: ConfigOpt = None,
             "[yellow]the learned combiner does not beat a threshold on the top-1 fusion "
             "score.[/yellow] Reported rather than tuned away: eight features, three of them "
             "constant on this corpus, is not enough signal to beat the one that carries it.")
+
+
+@eval_app.command("entailment")
+def eval_entailment(config: ConfigOpt = None,
+                    benchmark: Annotated[Path | None, typer.Option(
+                        help="benchmark file; defaults to benchmarks/entailment.yaml")] = None,
+                    temperature: Annotated[float | None, typer.Option(
+                        help="fixed calibration temperature; default is a "
+                             "leave-one-section-out fit")] = None,
+                    seed: Annotated[int, typer.Option(help="bootstrap seed")] = 0) -> None:
+    """Score the entailment verifier against the hand-labelled probe set.
+
+    Two strata, reported separately and never averaged: 129 pairs the generator actually
+    emitted, and 53 author-written minimal edits whose class balance was chosen rather than
+    observed. Pooling them lets the adversarial contradictions repair a generator stratum
+    that detects one contradiction in three.
+
+    Loading fails on an anchor that no longer resolves. That is deliberate: a silently
+    skipped pair shrinks the set while the reported n keeps counting what the file says.
+    """
+    from .verify import entail as entailer_module
+
+    cfg = Config.load(config)
+    with Store(cfg.store_path) as store:
+        pairs = load_entailment(benchmark or cfg.entailment_path, store=store)
+    console.print(f"{len(pairs)} pairs over {len({p.section_id for p in pairs})} sections; "
+                  + ", ".join(f"{s} {sum(1 for p in pairs if p.stratum == s)}"
+                              for s in STRATA))
+    report = score_entailment(pairs, temperature=temperature,
+                              samples=cfg.eval.bootstrap_samples, seed=seed)
+
+    table = Table(title="entailment accuracy, per stratum", header_style="bold")
+    for col in ("stratum", "n", "sections", "micro", "95% CI", "macro",
+                "entail", "neutral", "contradict"):
+        table.add_column(col, justify="left" if col == "stratum" else "right")
+    for s in report.strata:
+        table.add_row(*s.row())
+    console.print(table)
+
+    compare = Table(title="entailment against span alignment", header_style="bold")
+    # Short headers because the row has ten cells: at anything under ~110 columns the
+    # verdict cell elides to "measura..." , and a table that hides which comparison is
+    # significant is the one cell nobody can afford to lose.
+    for col in ("stratum", "n", "agree", "align", "NLI", "delta", "95% CI",
+                "won/lost", "p", "verdict"):
+        compare.add_column(col, justify="left" if col == "stratum" else "right",
+                           no_wrap=col == "verdict")
+    for c in report.comparisons:
+        compare.add_row(*c.row())
+    console.print(compare)
+
+    tp, fn, fp = report.contradiction_rates()
+    console.print(f"contradiction recall [bold]{tp / (tp + fn) * 100:.0f}%[/bold] "
+                  f"({tp}/{tp + fn}), precision "
+                  f"[bold]{tp / (tp + fp) * 100:.0f}%[/bold] ({tp}/{tp + fp}), "
+                  f"{fp} false flags")
+    console.print("[dim]The two strata are never averaged: the adversarial class balance is "
+                  "chosen, not observed. Intervals are section-clustered -- 182 pairs come "
+                  "from 91 sections and one over-cited claim contributed ten of them. "
+                  "Temperature is " + (f"fixed at {temperature}" if temperature is not None
+                                       else "fitted leave-one-section-out") + "; the shipped "
+                  f"constant is {entailer_module.CALIBRATION_TEMPERATURE}, and the delta "
+                  "moves with it.[/dim]")
 
 
 def _paired(cfg: Config, store: Store, items: list) -> None:

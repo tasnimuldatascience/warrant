@@ -31,6 +31,7 @@ than assumed equivalent.
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import math
 import os
@@ -85,8 +86,13 @@ class CorpusShape:
     #: The same, at 99.0..100% in tenths. The top percentile spans 172..1013 and
     #: interpolating it out of the 101-point table alone over-produces long chunks by ~9%.
     token_tail_quantiles: tuple[int, ...]
-    #: Paragraphs (distinct chunk_ids) per section, inverse CDF at 0..100% in 5% steps.
+    #: Paragraphs (distinct chunk_ids) per section, inverse CDF at 0..100% in 5% steps,
+    #: and again at 95..100% in halves. Both tables for the same reason the token
+    #: distribution needs both: the last bucket runs 25 to 92, and interpolating it out of
+    #: the coarse table alone puts 9.8 paragraphs in the average section against a measured
+    #: 7.7.
     paragraphs_per_section: tuple[int, ...]
+    paragraphs_tail_quantiles: tuple[int, ...]
     #: Words in a section heading, same form.
     heading_quantiles: tuple[int, ...]
     #: Characters per vocabulary *type*, same form. Types, not tokens: this sizes the FTS5
@@ -132,7 +138,8 @@ class CorpusShape:
 
     @property
     def mean_paragraphs_per_section(self) -> float:
-        return _quantile_mean(self.paragraphs_per_section)
+        return (0.95 * _quantile_mean(self.paragraphs_per_section[:-1])
+                + 0.05 * _quantile_mean(self.paragraphs_tail_quantiles))
 
     @property
     def mean_sections_per_part(self) -> float:
@@ -140,13 +147,20 @@ class CorpusShape:
 
     @property
     def mean_tokens(self) -> float:
-        """Mean tokens per chunk under the sampler in `_draw_tokens`, not under the corpus.
+        """Mean tokens per chunk under the sampler in `draw_tokens`, not under the corpus.
 
         The two agree to within a token, and it is the sampler's mean that has to be right
         here: it is what sizes the vocabulary and predicts the index.
         """
         return (0.99 * _quantile_mean(self.token_quantiles[:-1])
                 + 0.01 * _quantile_mean(self.token_tail_quantiles))
+
+    def draw_tokens(self, u: float) -> int:
+        return _draw_tail(self.token_quantiles, self.token_tail_quantiles, 0.99, u)
+
+    def draw_paragraphs(self, u: float) -> int:
+        return _draw_tail(self.paragraphs_per_section, self.paragraphs_tail_quantiles,
+                          0.95, u)
 
     @classmethod
     def measure(cls, conn: sqlite3.Connection, *, seed: int = 0,
@@ -194,10 +208,10 @@ class CorpusShape:
         all_dates = sorted({r[3] for r in rows})
         return cls(
             token_quantiles=_quantiles(tokens, 100),
-            token_tail_quantiles=tuple(
-                tokens[min(len(tokens) - 1, int((99 + i * 0.1) / 100 * len(tokens)))]
-                for i in range(11)),
+            token_tail_quantiles=_tail_quantiles(tokens, 99.0),
             paragraphs_per_section=_quantiles(sorted(len(v) for v in paras.values()), 20),
+            paragraphs_tail_quantiles=_tail_quantiles(
+                sorted(len(v) for v in paras.values()), 95.0),
             heading_quantiles=_quantiles(sorted(len((r[5] or "").split()) for r in rows), 20),
             type_length_quantiles=_quantiles(sorted(len(t) for t, _ in ranked), 20),
             sections_per_part=tuple(sorted(len(v) for v in sections.values())),
@@ -228,6 +242,15 @@ def ranked_vocabulary(texts: Sequence[str]) -> list[tuple[str, int]]:
 def _quantiles(values: Sequence[int], steps: int) -> tuple[int, ...]:
     n = len(values)
     return tuple(values[min(n - 1, int(i / steps * n))] for i in range(steps + 1))
+
+
+def _tail_quantiles(values: Sequence[int], start: float, points: int = 11) -> tuple[int, ...]:
+    """Inverse CDF from ``start``% to 100%, in equal steps. The coarse table's last bucket
+    is the whole tail, and the tail is where both of these distributions live."""
+    n = len(values)
+    step = (100.0 - start) / (points - 1)
+    return tuple(values[min(n - 1, int((start + i * step) / 100 * n))]
+                 for i in range(points))
 
 
 def _quantile_mean(table: Sequence[int]) -> float:
@@ -306,6 +329,7 @@ REAL_5CFR = CorpusShape(
     token_tail_quantiles=(172, 175, 180, 188, 199, 205, 212, 225, 236, 259, 1013),
     paragraphs_per_section=(1, 1, 1, 1, 1, 2, 2, 3, 4, 4, 5, 6, 6, 7, 8, 10, 11, 14, 18,
                             25, 92),
+    paragraphs_tail_quantiles=(25, 26, 27, 30, 32, 34, 36, 40, 46, 55, 92),
     heading_quantiles=(1, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7, 8, 11, 13, 24),
     type_length_quantiles=(1, 3, 4, 5, 5, 6, 6, 7, 7, 8, 8, 8, 9, 9, 10, 10, 11, 11, 12,
                            14, 142),
@@ -362,10 +386,17 @@ def _draw(table: Sequence[int], u: float) -> int:
     return int(round(table[lo] + frac * (table[lo + 1] - table[lo])))
 
 
-def _draw_tokens(shape: CorpusShape, u: float) -> int:
-    if u < 0.99:
-        return max(1, _draw(shape.token_quantiles[:-1], u / 0.99))
-    return max(1, _draw(shape.token_tail_quantiles, (u - 0.99) / 0.01))
+def _draw_tail(table: Sequence[int], tail: Sequence[int], split: float, u: float) -> int:
+    """Draw from a coarse quantile table, handing the top ``1 - split`` to a finer one.
+
+    Both of the distributions this generator has to reproduce are long-tailed, and in both
+    the coarse table's last bucket spans most of the range -- 172 to 1013 tokens, 25 to 92
+    paragraphs. Interpolating uniformly across it is a measurable error in the mean: +9% on
+    tokens, +27% on paragraphs per section.
+    """
+    if u < split:
+        return max(1, _draw(table[:-1], u / split))
+    return max(1, _draw(tail, (u - split) / (1 - split)))
 
 
 _CONSONANTS = "bcdfghklmnprstvwz"
@@ -559,7 +590,7 @@ def generate_chunks(shape: CorpusShape, n_versions: int, *,
                 break
             section_id = f"{part}.{101 + s}"
             heading = tape.take(max(1, _draw(shape.heading_quantiles, float(rng.random()))))
-            n_paras = max(1, _draw(shape.paragraphs_per_section, float(rng.random())))
+            n_paras = shape.draw_paragraphs(float(rng.random()))
             for p in range(n_paras):
                 if emitted >= n_versions:
                     break
@@ -590,7 +621,7 @@ def generate_chunks(shape: CorpusShape, n_versions: int, *,
                         subpart=chr(ord("A") + s // 12 % 26),
                         anchor=anchor,
                         heading=heading,
-                        text=tape.take(_draw_tokens(shape, float(rng.random()))),
+                        text=tape.take(shape.draw_tokens(float(rng.random()))),
                         valid_from=valid_from,
                         valid_to=valid_to,
                         source_snapshot=valid_from,
@@ -732,9 +763,17 @@ def rss_bytes() -> int:
 
         counters = _Counters()
         counters.cb = ctypes.sizeof(_Counters)
-        handle = ctypes.WinDLL("kernel32").GetCurrentProcess()
-        if ctypes.WinDLL("psapi").GetProcessMemoryInfo(
-                handle, ctypes.byref(counters), counters.cb):
+        kernel32 = ctypes.WinDLL("kernel32")
+        # Both restypes are load-bearing. ctypes defaults to c_int, which truncates the
+        # 64-bit pseudo-handle GetCurrentProcess returns to a 32-bit one, and the call then
+        # fails on a handle that looks valid -- silently, since the failure is a zero return
+        # this function used to hand back as a memory reading of zero.
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        psapi = ctypes.WinDLL("psapi")
+        psapi.GetProcessMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
+                                               wintypes.DWORD]
+        if psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(),
+                                      ctypes.byref(counters), counters.cb):
             return int(counters.WorkingSetSize)
         return 0
     try:
@@ -848,7 +887,13 @@ def measure_stages(store: Store, index: DenseIndex | None, queries: Sequence[str
     stats = {name: StageStats(name) for name in TIMED}
     rng = np.random.default_rng(seed ^ 0xA11)
     dim = index.vectors.shape[1] if index is not None else DENSE_DIM
+    allowed: set[int] = set()
     for query in queries:
+        # Release the previous query's admitted set *before* either timer starts. Held into
+        # the warm call, freeing it lands inside the measurement: at 500k that is 379,000
+        # int objects deallocated on the rebind, and the warm predicate path -- a dict hit
+        # and nothing else -- read 3.4 ms instead of 2 microseconds.
+        allowed = set()
         store._admits.clear()
         t = time.perf_counter()
         store.candidate_ids(valid_date=as_of)
@@ -896,27 +941,177 @@ def measure_stages(store: Store, index: DenseIndex | None, queries: Sequence[str
     return stats
 
 
-def cache_pressure(store: Store, dates: Sequence[str],
-                   *, limit: int = 64) -> tuple[int, int]:
-    """Bytes the admitted-set cache holds once ``limit`` distinct as-of dates have been seen.
+@dataclass
+class CachePressure:
+    """What `Store.candidate_ids`' 64-entry cache costs once it is full."""
 
-    Measured with `tracemalloc` rather than an RSS delta: CPython's allocator does not return
-    freed arenas to the OS, so an RSS delta over a cache being filled reports the high-water
-    mark of the whole process and attributes none of it to the cache.
+    analytic_bytes: int
+    entries: int
+    rss_delta_bytes: int
+    traced_bytes: int = -1
 
-    Returns (bytes, entries). Entries matters because a store with fewer than ``limit``
-    distinct dates cannot fill the cache, and the byte figure would otherwise read as if it
-    had.
+    @property
+    def bytes_per_entry(self) -> float:
+        return self.analytic_bytes / self.entries if self.entries else 0.0
+
+
+def cache_pressure(store: Store, dates: Sequence[str], *, limit: int = 64,
+                   trace: bool = False) -> CachePressure:
+    """Fill the admitted-set cache from ``limit`` distinct as-of dates and weigh it.
+
+    Weighed analytically -- `sys.getsizeof` over every set and every element -- rather than
+    with `tracemalloc`, which is the obvious tool and does not survive this workload: it
+    records a traceback per allocated block, and a full cache at 500k rows is 24 million
+    live ``int`` objects. ``trace=True`` turns it on anyway, and the tests use it at a size
+    where it is affordable to show the two agree. The RSS delta is the third opinion; it is
+    an upper bound, since CPython's allocator does not hand freed arenas back.
+
+    ``entries`` matters on its own: a store with fewer than ``limit`` distinct valid_from
+    dates cannot fill the cache, and the byte figure would otherwise read as if it had.
     """
     store._admits.clear()
     keys = list(dates)[:limit]
-    tracemalloc.start()
-    before = tracemalloc.get_traced_memory()[0]
+    traced = -1
+    if trace:
+        tracemalloc.start()
+    before_traced = tracemalloc.get_traced_memory()[0] if trace else 0
+    before_rss = rss_bytes()
     for d in keys:
         store.candidate_ids(valid_date=d)
-    after = tracemalloc.get_traced_memory()[0]
-    tracemalloc.stop()
-    return after - before, len(store._admits)
+    if trace:
+        traced = tracemalloc.get_traced_memory()[0] - before_traced
+        tracemalloc.stop()
+    analytic = sys.getsizeof(store._admits) + sum(
+        set_bytes(admitted) for _, admitted in store._admits.values())
+    return CachePressure(analytic_bytes=analytic, entries=len(store._admits),
+                         rss_delta_bytes=max(0, rss_bytes() - before_rss),
+                         traced_bytes=traced)
+
+
+def _time_ms(fn) -> float:
+    t = time.perf_counter()
+    fn()
+    return (time.perf_counter() - t) * 1000
+
+
+def _probe_dates(store: Store, n: int) -> list[str]:
+    """``n`` distinct as-of dates spanning the store's valid-time range.
+
+    Distinct *keys* is all the cache cares about, and a store with fewer than 64 real
+    snapshot dates could not otherwise be made to flush -- which would leave the flush
+    unmeasured at exactly the sizes where it is cheap enough to be worth confirming.
+    """
+    lo, hi = store.db.execute(
+        "SELECT MIN(valid_from), MAX(valid_from) FROM chunk").fetchone()
+    start, end = date.fromisoformat(lo), date.fromisoformat(hi)
+    span = max(1, (end - start).days)
+    return [(start + timedelta(days=(i * span) // max(n - 1, 1))).isoformat()
+            for i in range(n)]
+
+
+def _repeat_ms(fn, *, times: int = 15) -> float:
+    """Median wall-clock of ``fn``, in ms. Median rather than best-of: a best-of hides the
+    allocator and the GC, and both are part of what this module is asking about."""
+    samples = []
+    for _ in range(times):
+        t = time.perf_counter()
+        fn()
+        samples.append((time.perf_counter() - t) * 1000)
+    return percentile(samples, 50)
+
+
+def diagnose(store: Store, index: DenseIndex, queries: Sequence[str], *, as_of: str,
+             dates: Sequence[str], seed: int = 0) -> dict[str, float]:
+    """Measurements that name a cause, not a cost.
+
+    The sweep says which stage grew. These say *why*, and they price the remedy against the
+    thing it would replace, so a recommendation can be argued from a number instead of from
+    the shape of the code.
+    """
+    out: dict[str, float] = {}
+    rows = max(store.count(), 1)
+
+    # 1. How much of the corpus one `fts_query` actually selects. `Store.search` ends in
+    #    ORDER BY score LIMIT k, and FTS5 has to score every match to honour it, so this is
+    #    the work the lexical stage does regardless of how small k is.
+    sample = list(queries)[:20]
+    matched = [store.db.execute("SELECT COUNT(*) FROM chunk_fts WHERE chunk_fts MATCH ?",
+                                (fts_query(q),)).fetchone()[0] for q in sample]
+    out["match_rows_p50"] = percentile(matched, 50)
+    out["match_fraction_p50"] = out["match_rows_p50"] / rows
+
+    # 2. The warm predicate path is a dict hit and nothing else, so anything it costs is the
+    #    garbage collector walking what the cache is holding: a full cache is 64 tracked
+    #    sets, and gen-2 traverses every slot of each.
+    store._admits.clear()
+    for d in list(dates)[:64]:
+        store.candidate_ids(valid_date=d)
+    out["cache_entries"] = float(len(store._admits))
+    out["warm_gc_on_ms"] = _repeat_ms(lambda: store.candidate_ids(valid_date=as_of))
+    gc.disable()
+    try:
+        out["warm_gc_off_ms"] = _repeat_ms(lambda: store.candidate_ids(valid_date=as_of))
+    finally:
+        gc.enable()
+
+    # 2b. The cache does not evict, it flushes: at 64 entries `candidate_ids` clears all of
+    #     them. So one request in every 65 at a new as-of date pays to free the whole cache
+    #     on top of the cold scan it was already paying for.
+    probe = _probe_dates(store, 65)
+    empty = []
+    for d in probe[:5]:
+        store._admits.clear()
+        empty.append(_time_ms(lambda d=d: store.candidate_ids(valid_date=d)))
+    out["cold_empty_cache_ms"] = percentile(empty, 50)
+    flushed = []
+    for _ in range(3):
+        store._admits.clear()
+        for d in probe[:64]:
+            store.candidate_ids(valid_date=d)
+        flushed.append(_time_ms(lambda: store.candidate_ids(valid_date=probe[64])))
+    out["cold_on_flush_ms"] = percentile(flushed, 50)
+
+    # 3. What the admitted set costs in three representations, and what each costs to apply.
+    #    `set[int]` is the one in the code; the other two are the remedies, priced.
+    store._admits.clear()
+    allowed = store.candidate_ids(valid_date=as_of)
+    ids = index.ids
+    array = np.fromiter(allowed, dtype=np.int64, count=len(allowed))
+    array.sort()
+    mask = np.zeros(int(ids.max()) + 1 if ids.size else 1, dtype=bool)
+    mask[array] = True
+    out["admitted_set_bytes"] = float(set_bytes(allowed))
+    out["admitted_array_bytes"] = float(array.nbytes)
+    out["admitted_mask_bytes"] = float(mask.nbytes)
+    out["apply_isin_ms"] = _repeat_ms(lambda: np.isin(
+        ids, np.fromiter(allowed, dtype=ids.dtype, count=len(allowed))))
+    out["apply_searchsorted_ms"] = _repeat_ms(lambda: _member(array, ids))
+    out["apply_mask_ms"] = _repeat_ms(lambda: mask[ids])
+
+    # 4. `DenseIndex.search` masks scores rather than gathering the admitted rows, on a
+    #    measurement taken at 13k where 76% of rows are admitted. Re-priced here, because
+    #    the trade turns on the admitted fraction and on the size of the matrix.
+    vec = np.random.default_rng(seed).standard_normal(
+        index.vectors.shape[1]).astype(np.float32)
+    keep = mask[ids]
+    out["dense_mask_ms"] = _repeat_ms(
+        lambda: np.where(keep, index.vectors @ vec, -np.inf), times=7)
+    out["dense_gather_ms"] = _repeat_ms(lambda: index.vectors[keep] @ vec, times=7)
+    out["admitted_fraction"] = len(allowed) / rows
+    return out
+
+
+def _member(sorted_ids: np.ndarray, probe: np.ndarray) -> np.ndarray:
+    """Membership of ``probe`` in a pre-sorted id array, without re-sorting it every call.
+
+    `np.isin` sorts its second argument on every invocation, which is the part of the dense
+    predicate that grows with the corpus rather than with the query.
+    """
+    if sorted_ids.size == 0:
+        return np.zeros(probe.shape, dtype=bool)
+    pos = np.searchsorted(sorted_ids, probe)
+    np.clip(pos, 0, sorted_ids.size - 1, out=pos)
+    return sorted_ids[pos] == probe
 
 
 @dataclass
@@ -928,15 +1123,16 @@ class ScalePoint:
     stages_content_only: dict[str, dict[str, float]]
     admitted: int
     admitted_set_bytes: int
-    admitted_cache_bytes: int
-    admitted_cache_entries: int
+    cache: CachePressure
     dense_matrix_bytes: int
     rss_bytes: int
+    diagnostics: dict[str, float] = field(default_factory=dict)
     notes: str = ""
 
     def to_json(self) -> dict:
-        out = {k: v for k, v in vars(self).items() if k != "build"}
+        out = {k: v for k, v in vars(self).items() if k not in ("build", "cache")}
         out["build"] = None if self.build is None else vars(self.build)
+        out["cache"] = vars(self.cache)
         return out
 
 
@@ -944,7 +1140,7 @@ def run_point(label: str, path: Path, *, rows: int | None = None,
               shape: CorpusShape = REAL_5CFR, seed: int = 0, queries: int = 60,
               build: bool = True, index_path: Path | None = None,
               reranker: object | None = None, as_of: str | None = None,
-              notes: str = "") -> ScalePoint:
+              diagnostics: bool = False, notes: str = "") -> ScalePoint:
     """One point on every curve: build (or open) a store, then measure it.
 
     ``build=False`` against an existing ``path`` is how the real corpus is measured by the
@@ -971,22 +1167,25 @@ def run_point(label: str, path: Path, *, rows: int | None = None,
         admitted_bytes = set_bytes(admitted)
         dates = [r[0] for r in store.db.execute(
             "SELECT DISTINCT valid_from FROM chunk ORDER BY 1")]
-        cache_bytes, cache_entries = cache_pressure(store, dates)
+        cache = cache_pressure(store, dates)
 
-        natural = measure_stages(store, index, sample_queries(vocab, n=queries, seed=seed),
-                                 as_of=as_of_date, reranker=reranker, seed=seed)
+        natural_queries = sample_queries(vocab, n=queries, seed=seed)
+        natural = measure_stages(store, index, natural_queries, as_of=as_of_date,
+                                 reranker=reranker, seed=seed)
         content = measure_stages(
             store, index,
             sample_queries(vocab, n=queries, seed=seed, content_only=True),
             as_of=as_of_date, seed=seed)
+        detail = (diagnose(store, index, natural_queries, as_of=as_of_date, dates=dates,
+                           seed=seed) if diagnostics else {})
         return ScalePoint(
             label=label, rows=n, build=report,
             stages={k: v.summary(seed=seed) for k, v in natural.items() if v.samples},
             stages_content_only={k: v.summary(seed=seed)
                                  for k, v in content.items() if v.samples},
-            admitted=len(admitted), admitted_set_bytes=admitted_bytes,
-            admitted_cache_bytes=cache_bytes, admitted_cache_entries=cache_entries,
+            admitted=len(admitted), admitted_set_bytes=admitted_bytes, cache=cache,
             dense_matrix_bytes=int(index.vectors.nbytes), rss_bytes=rss_bytes(),
+            diagnostics=detail,
             notes=notes or f"{stats['parts']} parts, {stats['sections']} sections, "
                            f"{stats['dates']} dates, {stats['in_force']} in force")
 
@@ -1026,12 +1225,28 @@ def render_markdown(points: Sequence[ScalePoint]) -> str:
             out.append(f"| {p.label} | " + " | ".join(cells) + " |")
 
     out += ["", "### memory", "",
-            "| corpus | admitted | admitted set MB | cache MB (entries) | dense matrix MB "
-            "| process RSS MB |", "|---|---:|---:|---:|---:|---:|"]
+            "| corpus | admitted | admitted set MB | full cache MB (entries) | cache RSS "
+            "delta MB | dense matrix MB | process RSS MB |",
+            "|---|---:|---:|---:|---:|---:|---:|"]
     for p in points:
         out.append(f"| {p.label} | {p.admitted:,} | {_mb(p.admitted_set_bytes)} | "
-                   f"{_mb(p.admitted_cache_bytes)} ({p.admitted_cache_entries}) | "
-                   f"{_mb(p.dense_matrix_bytes)} | {_mb(p.rss_bytes)} |")
+                   f"{_mb(p.cache.analytic_bytes)} ({p.cache.entries}) | "
+                   f"{_mb(p.cache.rss_delta_bytes)} | {_mb(p.dense_matrix_bytes)} | "
+                   f"{_mb(p.rss_bytes)} |")
+
+    if any(p.diagnostics for p in points):
+        keys = ("match_rows_p50", "match_fraction_p50", "warm_gc_on_ms", "warm_gc_off_ms",
+                "cold_empty_cache_ms", "cold_on_flush_ms",
+                "admitted_set_bytes", "admitted_array_bytes", "admitted_mask_bytes",
+                "apply_isin_ms", "apply_searchsorted_ms", "apply_mask_ms",
+                "dense_mask_ms", "dense_gather_ms", "admitted_fraction")
+        out += ["", "### diagnostics", "",
+                "| measure | " + " | ".join(p.label for p in points) + " |",
+                "|---|" + "---:|" * len(points)]
+        for k in keys:
+            cells = [f"{p.diagnostics[k]:,.4g}" if k in p.diagnostics else "—"
+                     for p in points]
+            out.append(f"| {k} | " + " | ".join(cells) + " |")
     return "\n".join(out)
 
 
@@ -1050,6 +1265,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--real-index", type=Path, default=None,
                         help="the real dense index stem, e.g. data/dense")
     parser.add_argument("--keep", action="store_true", help="do not delete the stores")
+    parser.add_argument("--diagnose", action="store_true",
+                        help="also price the causes and the remedies at each size")
     args = parser.parse_args(argv)
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -1057,12 +1274,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.real is not None:
         points.append(run_point("real 5 CFR", args.real, build=False,
                                 index_path=args.real_index, queries=args.queries,
-                                seed=args.seed, notes="the measured corpus"))
+                                seed=args.seed, diagnostics=args.diagnose,
+                                notes="the measured corpus"))
         print("done real", file=sys.stderr, flush=True)
     for size in (int(s) for s in args.sizes.split(",")):
         path = args.out / f"scale-{size}.sqlite3"
         points.append(run_point(f"synthetic {size:,}", path, rows=size,
-                                queries=args.queries, seed=args.seed))
+                                queries=args.queries, seed=args.seed,
+                                diagnostics=args.diagnose))
         print(f"done {size}", file=sys.stderr, flush=True)
         if not args.keep:
             unlink_store(path)

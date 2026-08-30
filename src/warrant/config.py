@@ -50,6 +50,11 @@ class StoreConfig(BaseModel):
     #: artifact of a run someone was willing to defend, and it belongs in the repository
     #: next to the report it came from -- a floor that is gitignored gates nothing.
     floor: str = "results/eval-floor.json"
+    #: The hand-labelled entailment probe set. Tracked in git like human_benchmark: the
+    #: labels are the measurement, and a benchmark that only exists in a results table is
+    #: a number nobody can re-run -- which is how this repo shipped a docstring citing 148
+    #: pairs that existed nowhere.
+    entailment_benchmark: str = "benchmarks/entailment.yaml"
 
 
 class DiffConfig(BaseModel):
@@ -254,6 +259,11 @@ class Config(BaseModel):
     @property
     def traces_path(self) -> Path:
         p = Path(self.store.traces)
+        return p if p.is_absolute() else REPO_ROOT / p
+
+    @property
+    def entailment_path(self) -> Path:
+        p = Path(self.store.entailment_benchmark)
         return p if p.is_absolute() else REPO_ROOT / p
 
     @property

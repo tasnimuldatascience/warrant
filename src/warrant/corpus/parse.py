@@ -90,7 +90,10 @@ def _roman_to_int(token: str) -> int | None:
 
 
 def _alpha_to_int(token: str) -> int | None:
-    """Spreadsheet-style ordinal: a=1 ... z=26, aa=27. CFR rarely goes past one letter."""
+    """Spreadsheet-style ordinal: a=1 ... z=26, aa=27.
+
+    The doubled form is not hypothetical: §890.201 runs (a) through (z) and on to (gg).
+    """
     low = token.lower()
     if not low.isalpha():
         return None
@@ -100,47 +103,229 @@ def _alpha_to_int(token: str) -> int | None:
     return n
 
 
-def _is_successor(token: str, previous: str) -> bool:
-    """Is ``token`` the next designator after ``previous`` in the same numbering system?
+#: (designator, kind) per level, deepest last.
+_Stack = tuple[tuple[str, str], ...]
 
-    Sequence continuity, not character class, is what places a designator. Classifying by
-    type alone gets ``(ii)`` wrong after ``(b)(1)(i)``: ``ii`` looks like a plain letter, and
-    the ambiguity between the ninth letter and the second roman numeral cannot be resolved
-    without knowing what came before.
+#: What a level is numbered with, given what its parent was numbered with: (a) contains (1)
+#: contains (i) contains (A), and below that the CFR repeats (1) and (i). Kind is the only
+#: thing that separates the ninth letter from the first roman numeral, so this map is what
+#: makes ``(i)`` decidable at all.
+#:
+#: Keyed on the parent rather than on absolute depth, because a section is free to start
+#: partway down: §330.602 and §551.104 are definitions whose lists open at (1) with no
+#: lettered paragraph above them. Reading kind off the depth put a roman numeral two levels
+#: under those, minting §330.602(1)(1)(i) for a paragraph the regulation calls (1)(i).
+_BELOW = {"alpha": "digit", "digit": "roman", "roman": "upper", "upper": "digit"}
+_ROOT_KIND = "alpha"
+
+#: The designator each kind of level opens with.
+_FIRST = {"alpha": "a", "digit": "1", "roman": "i", "upper": "A"}
+
+
+def _kind_below(stack: _Stack) -> str:
+    return _BELOW[stack[-1][1]] if stack else _ROOT_KIND
+
+
+def _forms(token: str) -> dict[str, int]:
+    """Every kind of level this designator could belong to, with its ordinal in each.
+
+    ``(i)`` is the ninth letter *and* the first roman numeral, and the CFR uses both -- 5 CFR
+    890.301 has (h)(1)(i) and a top-level (i) in the same section. The token cannot decide;
+    all it can do is say which readings are open.
     """
-    if token.isdigit() and previous.isdigit():
-        return int(token) == int(previous) + 1
-    if token.isupper() != previous.isupper():
-        return False
-    tr, pr = _roman_to_int(token), _roman_to_int(previous)
-    if tr is not None and pr is not None and tr == pr + 1:
-        return True
-    ta, pa = _alpha_to_int(token), _alpha_to_int(previous)
-    return ta is not None and pa is not None and ta == pa + 1
+    if token.isdigit():
+        return {"digit": int(token)}
+    if not token.isalpha():
+        return {}
+    if token.isupper():
+        n = _alpha_to_int(token)
+        return {"upper": n} if n is not None else {}
+    if not token.islower():
+        return {}
+    out: dict[str, int] = {}
+    roman = _roman_to_int(token)
+    if roman is not None:
+        out["roman"] = roman
+    if len(set(token)) == 1:  # (a) .. (z), then (aa) .. (zz); never (ab)
+        alpha = _alpha_to_int(token)
+        if alpha is not None:
+            out["alpha"] = alpha
+    return out
 
 
-#: The opening designator of each level of the CFR hierarchy: (a) (1) (i) (A).
-_FIRST = frozenset({"a", "1", "i", "A"})
+def _is_successor(token: str, previous: str, kind: str) -> bool:
+    """Is ``token`` the next designator after ``previous``, read as a ``kind`` level?
 
-
-def _push(stack: list[str], token: str) -> None:
-    """Place a designator at its level in the hierarchy.
-
-    A designator that continues an existing level replaces it and closes everything below.
-    A designator that opens a level starts a new one. Anything else -- most often a level
-    whose first item was written inline with its parent, as in ``(d) ... (1) ...`` followed
-    by a standalone ``(2)`` -- opens a new level too, which keeps the address unique and in
-    document order even when the hierarchy cannot be recovered exactly.
+    The kind has to be supplied. Asking whether ``(ii)`` follows ``(i)`` without it is the
+    question that produced the bug this signature exists to close: the answer is yes as roman
+    numerals and no as letters, and a predicate that guesses will guess wrong somewhere.
     """
-    for i in range(len(stack) - 1, -1, -1):
-        if _is_successor(token, stack[i]):
-            del stack[i:]
-            stack.append(token)
-            return
-    if token in _FIRST:
-        stack.append(token)
-        return
-    stack.append(token)
+    a, b = _forms(token).get(kind), _forms(previous).get(kind)
+    return a is not None and b is not None and a == b + 1
+
+
+# How much each way of placing a designator costs. These are not thresholds anyone tuned to a
+# score; they are an ordering, and only the order matters. Continuing an open level and
+# opening the next one with its own first designator are what the CFR does by default and cost
+# nothing. Everything below them is an irregularity, and the ranking says which irregularity
+# is likelier: a chapeau that ran its first child into its own sentence (very common in eCFR)
+# beats an entire level going unwritten, which beats a designator missing from a level, which
+# beats a level numbered outside the CFR's cycle, which beats the same level restarting under
+# one parent. `_resolve` sums them over a whole section, so a locally attractive reading that
+# wrecks the next ten paragraphs loses to the one that does not.
+_CONTINUE = 0
+_OPEN = 0
+_OPEN_INLINE = 2  # "(f) Open season. (1) ..." then a standalone "(2)"
+_IMPLIED = 2      # ... and then a standalone "(i)", with the whole of (1) still inline
+                  # -- charged per level buried in the parent's sentence
+_SKIP = 5         # a gap in a level's numbering
+_OFF_CYCLE = 6    # a level numbered with something other than what its parent calls for
+_OFF_CYCLE_INLINE = 8
+_RESTART = 9      # a level starting over under the same parent: an address collision
+_DISPLACE = 12    # a designator no reading admits
+_ORPHAN = 2       # a level opening on the far side of an undesignated paragraph
+
+
+def _placements(stack: _Stack, token: str,
+                orphaned: bool = False) -> list[tuple[int, _Stack]]:
+    """Every level ``token`` could sit at, with what that reading costs.
+
+    Replaces a greedy push. The greedy version scanned the stack for the first level the token
+    continued and took it, which is why a top-level ``(i)`` after ``(h)(1)`` was unrecoverable:
+    ``i`` continues ``h`` two levels up, and the reading that opens a roman level under (1) was
+    never generated, let alone compared. Both are produced here and `_resolve` picks between
+    them on what follows.
+
+    ``orphaned`` says an undesignated paragraph stands between this stack and the token. A
+    list that carries on across one is ordinary -- flush text closes a list and the list
+    continues -- but a list that *starts* across one usually belongs to the undesignated
+    paragraph rather than to the designator above it, so only opening pays for it.
+    """
+    forms = _forms(token)
+    if not forms:
+        depth = max(len(stack) - 1, 0)
+        return [(_DISPLACE, stack[:depth] + ((token, _kind_below(stack[:depth])),))]
+
+    out: list[tuple[int, _Stack]] = []
+    for depth, (previous, kind) in enumerate(stack):
+        here, there = forms.get(kind), _forms(previous).get(kind)
+        if here is None or there is None:
+            continue
+        if here == there + 1:
+            cost = _CONTINUE
+        elif here > there + 1:
+            cost = _SKIP
+        elif here == 1:
+            cost = _RESTART
+        else:
+            continue
+        out.append((cost, stack[:depth] + ((token, kind),)))
+
+    wanted = _kind_below(stack)
+    orphan = _ORPHAN if orphaned else 0
+    for kind, ordinal in forms.items():
+        if kind == wanted:
+            cost = _OPEN if ordinal == 1 else _OPEN_INLINE
+        else:
+            cost = _OFF_CYCLE if ordinal == 1 else _OFF_CYCLE_INLINE
+        out.append((cost + orphan, stack + ((token, kind),)))
+
+    # Levels written entirely inside their parent: "(e) Decreasing enrollment type. (1)
+    # Subject to two exceptions ..." is followed by a standalone "(i)", and (e)(1) never gets
+    # a <P> of its own. Filling it in is what makes 890.301#e-1-i the address a reader would
+    # write. Two are allowed because §315.612(e) runs "(e) Proof of eligibility. (1)(i) Prior
+    # to appointment ..." and then a standalone "(A)", burying both (1) and (i). Only from a
+    # non-empty stack: with nothing above it a numbered top level -- which §550.1104 really
+    # has -- would be pushed under an invented "(a)".
+    filled = stack
+    kind = wanted
+    for implied in (1, 2):
+        if not stack:
+            break
+        filled += ((_FIRST[kind], kind),)
+        kind = _BELOW[kind]
+        ordinal = forms.get(kind)
+        if ordinal is None:
+            continue
+        cost = _IMPLIED * implied + (_OPEN if ordinal == 1 else _OPEN_INLINE)
+        out.append((cost + orphan, filled + ((token, kind),)))
+    return out
+
+
+#: How many readings of a section's numbering are carried forward at once. The ambiguity is
+#: local -- one or two designators deep -- and the widest section in the corpus, §890.301 with
+#: 52 paragraphs, resolves at a width of 4. 16 is slack, and costs nothing measurable.
+_BEAM = 16
+
+
+def _resolve(items: list[tuple[list[str] | None, str]]) -> list[str]:
+    """Anchors for a section's designator chains, chosen over the whole section at once.
+
+    Paragraph by paragraph the numbering is ambiguous and no amount of care at one paragraph
+    fixes it: after ``(h)(1)``, a ``(i)`` is equally the roman numeral opening (h)(1)(i) and
+    the letter opening a new top-level (i), and 5 CFR 890.301 contains both readings, four
+    paragraphs apart. What distinguishes them is what comes next -- ``(ii)`` continues the
+    roman run, ``(1)`` cannot follow a roman numeral without a level being skipped -- so the
+    decision is deferred and settled by the cheapest reading of the whole sequence.
+
+    ``items`` is the section's whole body in order: a designator chain, or ``None`` and the
+    positional anchor of an undesignated paragraph. The undesignated ones are not passengers.
+    A definitions section is a run of headwords -- "*Employee* means a person who is
+    employed--" -- each followed by its own (1), (2), (3), and reading those as children of
+    the last designator seen produced §551.104(6)(1) and §630.201(b)(7)(1), addresses that
+    look like citations and are not in the regulation. Each undesignated paragraph is
+    therefore offered as an alternative root, and the search decides whether the list that
+    follows belongs to it or to the designator above it.
+
+    A beam rather than an exhaustive search: cost differences show up within a designator or
+    two, and carrying every stack the section could have would be exponential for no gain.
+    """
+    # (cost, stack, index of the state it came from, anchor if a paragraph ends here)
+    states: list[tuple[int, _Stack, int, str]] = [(0, (), -1, "")]
+    beam = [0]
+    answer = beam
+    rooted = -1  # the state rooted at the most recent undesignated paragraph
+    orphaned = False
+    for chain, fallback in items:
+        if chain is None:
+            # Only the nearest undesignated paragraph is a candidate parent; an earlier one
+            # is a headword whose own list has already been read or was never there.
+            # Carries the cheapest reading so far as its history, and its cost, so that
+            # re-rooting neither loses the anchors already assigned nor buys an advantage.
+            prefix = min(beam, key=lambda i: (states[i][0], states[i][1]))
+            states.append((states[prefix][0], ((fallback, _ROOT_KIND),), prefix, ""))
+            beam = [i for i in beam if i != rooted] + [len(states) - 1]
+            rooted, orphaned = len(states) - 1, True
+            continue
+        for position, token in enumerate(chain):
+            ends = position == len(chain) - 1
+            best: dict[_Stack, int] = {}
+            for index in beam:
+                cost, stack, _, _ = states[index]
+                for extra, moved in _placements(stack, token,
+                                                orphaned and index != rooted):
+                    total = cost + extra
+                    seen = best.get(moved)
+                    if seen is not None and states[seen][0] <= total:
+                        continue
+                    anchor = "-".join(t for t, _ in moved) if ends else ""
+                    states.append((total, moved, index, anchor))
+                    best[moved] = len(states) - 1
+            # Ties are broken on the stack itself so the same input always gives the same
+            # anchors, whatever order the dict happened to be built in.
+            beam = sorted(best.values(), key=lambda i: (states[i][0], states[i][1]))[:_BEAM]
+            rooted, orphaned = -1, False
+        answer = beam
+
+    out: list[str] = []
+    index = min(answer, key=lambda i: (states[i][0], states[i][1]))
+    while index > 0:
+        _, _, previous, anchor = states[index]
+        if anchor:
+            out.append(anchor)
+        index = previous
+    out.reverse()
+    return out
 
 
 #: Body elements that carry regulatory prose. ``P`` is the ordinary paragraph; the ``FP``
@@ -204,9 +389,11 @@ def _paragraphs(node: etree._Element) -> list[Paragraph]:
     as a backstop for markup the stack cannot resolve; it should stay unused, and a test
     asserts uniqueness over the real corpus.
     """
-    out: list[Paragraph] = []
-    stack: list[str] = []
-    used: dict[str, int] = {}
+    # Read first, address second. A designator's level depends on designators that have not
+    # been read yet (see ``_resolve``), so the whole section's numbering is collected before
+    # any of it is turned into an address.
+    body: list[tuple[str, str, list[str] | None]] = []
+    items: list[tuple[list[str] | None, str]] = []
     tables = 0
     for i, p in enumerate(_body_elements(node), start=1):
         if p.tag in _TABLE_TAGS:
@@ -214,26 +401,26 @@ def _paragraphs(node: etree._Element) -> list[Paragraph]:
             if not text:
                 continue
             tables += 1
-            anchor = f"t{tables}"
-            if anchor in used:
-                used[anchor] += 1
-                anchor = f"{anchor}.{used[anchor]}"
-            else:
-                used[anchor] = 1
-            out.append(Paragraph(anchor=anchor, text=text))
+            body.append((f"t{tables}", text, None))
             continue
         text = _WS.sub(" ", "".join(strip_apparatus(p).itertext())).strip()
         if not text:
             continue
         m = _LABEL.match(text)
-        if m:
-            _push(stack, m.group(1))
-            for extra in re.findall(r"\(([a-zA-Z0-9]{1,4})\)", m.group(2) or ""):
-                _push(stack, extra)
-            anchor = "-".join(stack)
-        else:
+        if not m:
             # Flush text with no designator: an introductory or concluding paragraph.
-            anchor = f"p{i}"
+            body.append((f"p{i}", text, None))
+            items.append((None, f"p{i}"))
+            continue
+        chain = [m.group(1), *re.findall(r"\(([a-zA-Z0-9]{1,4})\)", m.group(2) or "")]
+        body.append(("", text, chain))
+        items.append((chain, ""))
+
+    anchors = iter(_resolve(items))
+    out: list[Paragraph] = []
+    used: dict[str, int] = {}
+    for fallback, text, chain in body:
+        anchor = next(anchors) if chain is not None else fallback
         if anchor in used:
             used[anchor] += 1
             anchor = f"{anchor}.{used[anchor]}"
