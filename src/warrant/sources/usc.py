@@ -24,6 +24,23 @@ zip per title::
 
 Title 5 is 2.9 MB compressed and 19 MB of XML -- one request, cached, for every section this
 project needs. The all-titles zip is the 107 MB one, and nothing here wants it.
+
+**When a statute became the law, and why the edition date is not that.** A release point is
+an *edition*: 119-102 replaces 119-101 wholesale and is stamped with the date of the last
+public law folded into it, 2026-07-12. That date says when OLRC published, not when Congress
+acted. Dating 5 U.S.C. 6304 from it claims a statute in force since 1966 began in July 2026,
+and since the as-of predicate is ``valid_from <= :v`` pushed into SQL, every dated query over
+the corpus window -- which starts at 2017 -- admitted *nothing* from this source and returned
+an empty result indistinguishable from a question with no statutory answer.
+
+So ``valid_from`` comes from the section's own ``<sourceCredit>``: the enactment-and-amendment
+chain, whose latest date is the last time Congress touched this text. It is a lower bound --
+"in force at least since" -- and the lower bound is the claim the predicate needs. 911 of
+title 5's 1,129 operative sections were last amended before 2017-01-01, so for those the
+honest claim is that they held for the whole corpus window, which is stronger than the edition
+date, not weaker. ``meta["release_point"]`` and ``source_snapshot`` still carry the edition, so
+a quotation remains traceable to the OLRC file it came from. See
+docs/results/eval-009-statute-validity.md.
 """
 
 from __future__ import annotations
@@ -35,7 +52,7 @@ import time
 import zipfile
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -323,6 +340,65 @@ def _designator(el: etree._Element) -> str:
     return ""
 
 
+#: ``<date date="1966-09-06">`` inside a source credit. OLRC marks every credit date up this
+#: way in title 5, which is why the statute's validity is read from an attribute rather than
+#: from prose.
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+#: The same date as OLRC renders it: "Sept. 6, 1966", "Dec. 23, 2016", "June 15, 2022". Only
+#: the month's first three letters are matched, so the spellings that run long -- June, July,
+#: Sept., and any month left unabbreviated -- need no alternation of their own.
+_CREDIT_PROSE_DATE = re.compile(
+    r"\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2}),\s+(\d{4})\b")
+_CREDIT_MONTHS = {name: n + 1 for n, name in enumerate(
+    ("jan", "feb", "mar", "apr", "may", "jun",
+     "jul", "aug", "sep", "oct", "nov", "dec"))}
+
+
+def _prose_dates(text: str) -> list[str]:
+    """Dates written into a credit's prose, ISO, in the order they appear.
+
+    Only reached where OLRC emitted no ``<date>`` markup. Parsed strictly -- an impossible
+    day is dropped rather than clamped -- because a credit date becomes the date the store
+    says a statute took effect, and a silently repaired one is worse than a missing one.
+    """
+    out: list[str] = []
+    for month, day, year in _CREDIT_PROSE_DATE.findall(text):
+        try:
+            out.append(date(int(year), _CREDIT_MONTHS[month[:3].lower()],
+                            int(day)).isoformat())
+        except ValueError:
+            continue
+    return out
+
+
+def _credit_dates(section: etree._Element) -> list[str]:
+    """Every date in the section's source credit, ISO, in document order.
+
+    Two paths, and the prose one is a backstop rather than a second parser with a vote.
+    Measured across all 1,163 operative sections of title 5 at release point 119-102: 1,129
+    carry a ``<sourceCredit>``, the attribute path answered all 1,129, the prose path
+    answered the same 1,129, and the two agreed on the latest date in every one. The 34 with
+    no credit are exactly the 34 repealed, omitted, renumbered and transferred sections,
+    which carry no operative text and are already skipped for having no units.
+
+    Only the section's *own* credit is read. A credit nested in a note belongs to the text
+    that note quotes, and ``_section_element`` has already established that quoted sections
+    are not this section.
+    """
+    credit = next((c for c in section
+                   if _is_element(c) and _local(c) == "sourceCredit"), None)
+    if credit is None:
+        return []
+    marked: list[str] = []
+    for el in credit.iter():
+        if not _is_element(el) or _local(el) != "date":
+            continue
+        value = (el.get("date") or "").strip()
+        if _ISO_DATE.match(value):
+            marked.append(value)
+    return marked or _prose_dates(_text_of(credit))
+
+
 @dataclass(frozen=True)
 class UscSection:
     """One section of the Code, parsed. The intermediate ``documents()`` builds a doc from."""
@@ -336,10 +412,28 @@ class UscSection:
     source_credit: str = ""
     status: str = ""
     chapter: str = ""
+    #: Enactment and amendment dates from the source credit, ISO, in document order. Kept as
+    #: the whole chain rather than only its maximum so a reader can see the interval the
+    #: bound was drawn from -- ``source_credit`` is the rendered prose and has lost the
+    #: machine-readable dates by the time it is a string.
+    credit_dates: tuple[str, ...] = ()
 
     @property
     def citation(self) -> str:
         return f"{self.title} U.S.C. {self.number}"
+
+    @property
+    def last_amended(self) -> str:
+        """The latest date in the source credit, or ``""`` if the credit yielded none.
+
+        This is a lower bound on the validity of the text as it currently reads, not a
+        statement that the text was published in this form that day: a credit records that
+        Congress amended the section on that date, and the amendment may have touched one
+        subsection out of twenty. The bound is what the as-of predicate needs -- the section
+        has been in force *at least* since then -- and the exact date is not recoverable from
+        a release point at all, because an edition carries no per-section history.
+        """
+        return max(self.credit_dates, default="")
 
 
 def _emit(out: list[Unit], anchor: str, text: str, *, heading: str, locator: str,
@@ -482,6 +576,7 @@ def read_section(section: etree._Element, *, doc_id: str) -> UscSection:
         source_credit=_child_text(section, "sourceCredit"),
         status=(section.get("status") or "").strip(),
         chapter=_ancestor_num(section, "chapter"),
+        credit_dates=tuple(_credit_dates(section)),
     )
 
 
@@ -698,6 +793,11 @@ class UscSource:
     name: str = "usc"
     authority: int = AUTHORITY_STATUTE
 
+    #: Citations dropped for having no datable source credit, from the last ``documents()``
+    #: run. A number rather than a log line nobody reads: the whole point of the undated
+    #: policy is that what it costs stays visible. It cost 0 of 1,129 on title 5.
+    undated: list[str] = field(default_factory=list)
+
     def __post_init__(self) -> None:
         if self.client is None:
             self.client = UscClient(
@@ -758,19 +858,15 @@ class UscSource:
         except etree.XMLSyntaxError as exc:
             raise UscParseError(f"US Code title {self.config.title} at release point "
                                 f"{rp.name}: not well-formed USLM ({exc})") from exc
-        # The USC is republished as an edition, not amended in place: release point 119-102
-        # *replaces* 119-101 wholesale, and there is no per-section amendment date anywhere
-        # in the file. So ``valid_from`` is the edition date and ``valid_to`` is None -- open,
-        # meaning "as far as this source knows, still the law". This is NOT the same claim the
-        # CFR source makes, where valid_from is the date an amendment took effect and
-        # valid_to closes at the next one. A reader of the store who treats a statute's
-        # valid_from as an amendment date will conclude 5 U.S.C. 6304 changed in July 2026,
-        # when in fact only the snapshot did; ``meta["release_point"]`` is what distinguishes
-        # them, and it is recorded on every document for exactly that reason.
-        valid_from = rp.date or _created_date(root) or ""
+        # The edition date: when OLRC published this release point, not when any of its text
+        # became the law. It is the ``source_snapshot`` every chunk records -- which OLRC
+        # file a quotation can be checked against -- and it is deliberately *not*
+        # ``valid_from``, which is dated per section from that section's source credit.
+        edition = rp.date or _created_date(root) or ""
         package_url = TITLE_XML_URL.format(congress=rp.congress, law=rp.law,
                                            title=title_code(self.config.title))
         count = 0
+        self.undated.clear()
         for el in self._selected(root, rp):
             identifier = (el.get("identifier") or "").strip()
             try:
@@ -782,6 +878,20 @@ class UscSource:
                 # Repealed and omitted sections keep a heading and a note and nothing else.
                 log.info("%s has no operative text (status %r); skipped",
                          parsed.citation, parsed.status or "none")
+                continue
+            valid_from = parsed.last_amended
+            if not valid_from:
+                # Dropped rather than dated. The two alternatives are both worse and both
+                # silent: the edition date is the bug this module was fixed for -- it hides
+                # the section from every dated query in the corpus window -- and inventing an
+                # earlier bound trades that silence for a wrong-version answer, which the
+                # held-out split scores at +96.1 points when temporal filtering is dropped.
+                # A statute whose start date cannot be derived is a statute this source
+                # cannot place in time, and saying so is the only honest option.
+                self.undated.append(parsed.citation)
+                log.warning("%s: no datable source credit; not ingested, because a statute "
+                            "this source cannot date cannot be given a validity interval",
+                            parsed.citation)
                 continue
             count += 1
             yield SourceDoc(
@@ -796,6 +906,17 @@ class UscSource:
                 url=SECTION_URL.format(title=parsed.title, num=parsed.number),
                 meta={
                     "release_point": rp.name,
+                    "release_point_date": edition,
+                    # Read by ``corpus/ingest.py`` into every chunk's ``source_snapshot``.
+                    # A citation to a statute has to name the edition it was quoted from,
+                    # and now that ``valid_from`` is an amendment date it is the only field
+                    # left that does.
+                    "snapshot": edition,
+                    # What ``valid_from`` on these rows means, written where a reader of the
+                    # store will find it. "in force at least since", from the credit -- not
+                    # the CFR source's claim, which is the date an amendment took effect.
+                    "valid_from_basis": "source_credit",
+                    "source_credit_dates": " ".join(parsed.credit_dates),
                     "usc_title": parsed.title,
                     "section": parsed.number,
                     "chapter": parsed.chapter,
@@ -805,8 +926,8 @@ class UscSource:
                     "package_url": package_url,
                 },
             )
-        log.info("usc: %d sections from title %s at release point %s",
-                 count, self.config.title, rp.name)
+        log.info("usc: %d sections from title %s at release point %s (%d undated, skipped)",
+                 count, self.config.title, rp.name, len(self.undated))
 
 
 _DCTERMS_CREATED = "{http://purl.org/dc/terms/}created"

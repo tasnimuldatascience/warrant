@@ -11,31 +11,44 @@ machine runs at 21.3 tokens/s and a full answer takes ~20 seconds, so a verifier
 another forward pass would double the latency of the stage it is meant to protect, and would
 be the first thing shed under load -- exactly when the guard is most needed.
 
-The eight signals, and what each is supposed to notice:
+The eight signals, what each is supposed to notice, and what it was measured to be worth.
+The last column is single-feature AUC against sufficiency on 499 benchmark items,
+eval-005; three of the eight are near-constant on this corpus and are said so here rather
+than left for a reader to assume all eight earned their place.
 
-``top_score``       how much rank-fusion mass the winner actually accumulated. Low means no
-                    ranker was confident, not merely that they disagreed.
-``margin_1_2``      whether there is a winner at all, or a tie at the top.
-``margin_1_5``      the same question over the whole head. A query whose top five are
+``top_score``       0.83. How much rank-fusion mass the winner actually accumulated. Low
+                    means no ranker was confident, not merely that they disagreed. It spans
+                    only 0.025-0.033 and takes a handful of distinct values -- RRF caps it at
+                    ``2/(k+1)`` -- and it is still the strongest single signal here.
+``margin_1_2``      0.55. Whether there is a winner at all, or a tie at the top.
+``margin_1_5``      0.53. The same question over the whole head. A query whose top five are
                     separated by nothing is a query the corpus answers five ways or not at all.
-``entropy``         the shape of the head as a distribution, normalised to [0, 1]. Flat is bad.
-``rank_agreement``  how many of the top-k BM25 and dense both found. This is the strongest
-                    free signal available: two rankers built on unrelated evidence -- term
-                    statistics and embedding geometry -- converging on the same paragraphs is
-                    hard to arrange by accident, and disagreement is the ordinary signature of
-                    a query that matches nothing in particular.
-``term_coverage``   the share of the query's content words that appear anywhere in the top-k
-                    text. Cheap, and it is the one signal that looks at what was *asked*
-                    rather than at how the ranking came out.
-``log_admitted``    rows surviving the as-of and applicability predicates. A near-empty
+``entropy``         0.36. The shape of the head as a distribution, normalised to [0, 1].
+                    Near-constant at 0.998: the head is a list of RRF weights ``1/(60+r)``,
+                    which is close to uniform whatever the query, so "flat is bad" cannot
+                    discriminate when everything is flat. Kept because a score head that is
+                    *not* RRF -- a reranked or single-ranker head -- would move it.
+``rank_agreement``  0.56. How many of the top-k BM25 and dense both found. This was expected
+                    to be the strongest free signal, on the reasoning that two rankers built
+                    on unrelated evidence converging is hard to arrange by accident. It is
+                    not. Both rankers read the same admitted set through the same
+                    ``retrieval_text``, and on regulatory prose they agree about half the time
+                    whether or not the answer is in there: mean 0.522 overall against 0.484 on
+                    the items that failed, on a feature that ranges 0 to 0.94. The prediction
+                    is left visible because it was wrong.
+``term_coverage``   0.70. The share of the query's content words that appear anywhere in the
+                    top-k text. Cheap, the second strongest signal measured, and the only one
+                    that looks at what was *asked* rather than at how the ranking came out.
+``log_admitted``    0.36. Rows surviving the as-of and applicability predicates. A near-empty
                     admitted set means the question is outside the corpus as scoped and dated,
-                    which no amount of ranking can repair. Logged because the count spans
-                    zero to ~13k and only its order of magnitude carries information.
-``guidance_top``    whether the best hit is notice/guidance/archival rather than statute or
-                    regulation. On this corpus every row is eCFR regulation, so the feature is
-                    a constant zero and is kept for the multi-source path rather than because
-                    it measures anything today; the results doc says so rather than letting a
-                    reader assume all eight features earned their place.
+                    which no amount of ranking can repair. That case does not occur here: the
+                    predicates admit 8.7k-10.0k rows on every benchmark item, so the feature
+                    spans 9.06-9.21 and is measuring the size of the corpus. It earns its
+                    place only once a query can fall outside it.
+``guidance_top``    0.50 by construction. Whether the best hit is notice/guidance/archival
+                    rather than statute or regulation. On this corpus every row is eCFR
+                    regulation, so the feature is a constant zero and is kept for the
+                    multi-source path rather than because it measures anything today.
 
 Scores are read off the **fused** stage, not the final one. When a cross-encoder runs, the
 final stage carries its logits, and a margin between two logits is a different quantity from a
@@ -141,7 +154,8 @@ def signals(trace: Trace, *, texts: Mapping[str, str] | None = None,
     # Denominator is top_k, not the shorter list: a query that returned three candidates
     # cannot reach full agreement, which is the intended reading rather than a rounding
     # artifact. In a lexical-only configuration there is no second list and this is a
-    # constant zero -- see ``Standardizer`` in calibrate.py, which refuses to divide by it.
+    # constant zero -- ``Combiner.fit`` gives a constant column scale 1 rather than dividing
+    # by a zero standard deviation, so the model degrades to seven features instead of NaN.
     agreement = len(set(lexical) & set(dense)) / top_k if dense else 0.0
 
     final = trace.final[:top_k] or [c.version_id for c in fused[:top_k]]

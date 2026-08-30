@@ -139,3 +139,23 @@ sources:
     # package/granule. Listed, not swept: a printed volume is 300 MB and this tier
     # corroborates a citation rather than supplying one.
     granules: []
+
+# The NLI verifier. Off, with the number that decides it beside it -- the same discipline
+# index.rerank follows.
+#
+# On real generator output it buys +2.3 points over span alignment at p=0.55: not
+# measurable. What it does buy is a second channel: on claims flipped to contradict their
+# evidence it is +49.1 (p=8.7e-07), because the span aligner finds a supporting span in all
+# 22 of them. A contradiction shares more vocabulary with its premise than a real paraphrase
+# does, so tuning the aligner never reaches it.
+#
+# The caveat that matters is the class breakdown, not the headline: macro accuracy on
+# generator output is 60.1%, and half the generator's neutral pairs come back as entailment.
+# 86.8% micro would have shipped a verifier that is 50% accurate on the cases it exists for.
+# See results/eval-007-entailment.md.
+entail:
+  enabled: false
+  model: "cross-encoder/nli-deberta-v3-base"
+  revision: null
+  batch_size: 16              # measured peak; 458 pairs/s on GPU, ~24 ms per answer
+  temperature: 1.72           # fitted out-of-fold; ECE 9.45% -> 4.99%

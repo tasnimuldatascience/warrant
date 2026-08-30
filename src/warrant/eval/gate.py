@@ -20,6 +20,12 @@ passes exactly when the system got cheaper and worse.
 **One-sided, on purpose.** An improvement never fails the gate. It does print, loudly,
 because a recorded floor that nobody re-records goes stale, and the moment to re-record is
 when the number moved up on purpose.
+
+A known and deliberate wart: the config hash covers every field, so adding a *disabled*
+feature's settings invalidates the floor even though nothing about the run changed. The
+alternative -- excluding the fields of anything currently switched off -- is a rule that has
+to be right about which fields those are, in a file that grows, and it fails silently in the
+direction of a false pass. Re-recording is cheap and never wrong; guessing is neither.
 """
 
 from __future__ import annotations

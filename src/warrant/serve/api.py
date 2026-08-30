@@ -799,7 +799,20 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
         return "event: " + event + "\n" + "data: " + payload + "\n\n"
 
 
-    @app.get("/api/ask/stream", include_in_schema=True)
+    @app.get(
+        "/api/ask/stream", response_class=StreamingResponse,
+        # Declared, not defaulted. Without response_class FastAPI documents this as
+        # application/json with an open schema -- syntactically valid, load-bearing for
+        # nobody, and it would let a renamed event break every client silently. SSE has no
+        # schema language, so the event names are the contract and they are written down.
+        responses={200: {"description":
+                         "Server-sent events, in order: `retrieval` (admitted count and "
+                         "stage timings), `evidence` (the ranked chunks, available in "
+                         "milliseconds), `status`, zero or more `claim` frames once parsed "
+                         "and validated, then `done` carrying the trace id. An `error` "
+                         "frame ends the stream in place of `done`, because after the "
+                         "response opens the status code is already spent.",
+                         "content": {"text/event-stream": {}}}})
     async def ask_stream(question: guard.Question = guard.QuestionParam,
                          as_of: str = Query(max_length=32),
                          pay_system: str | None = None,

@@ -75,7 +75,10 @@ SEC6304 = b"""<?xml version="1.0" encoding="UTF-8"?>
           </subsection>
           <sourceCredit>(<ref href="/us/pl/89/554">Pub. L. 89&#8211;554</ref>,
             <date date="1966-09-06">Sept. 6, 1966</date>,
-            <ref href="/us/stat/80/519">80 Stat. 519</ref>.)</sourceCredit>
+            <ref href="/us/stat/80/519">80 Stat. 519</ref>;
+            <ref href="/us/pl/111/282/s2/b">Pub. L. 111&#8211;282, &#167;&#8239;2(b)</ref>,
+            <date date="2010-10-15">Oct. 15, 2010</date>,
+            <ref href="/us/stat/124/3038">124 Stat. 3038</ref>.)</sourceCredit>
           <notes type="uscNote">
             <note topic="amendments">
               <p>1973&#8212;Subsec. (b). <ref href="/us/pl/93/181">Pub. L. 93&#8211;181</ref>
@@ -145,6 +148,29 @@ ODDITIES = b"""<section xmlns="http://xml.house.gov/schemas/uslm/1.0"
   <subsection identifier="/us/usc/t5/s552a/b">
     <content>A level the converter could not number.</content>
   </subsection>
+</section>
+"""
+
+
+#: A credit OLRC converted without <date> markup, which is how titles other than 5 sometimes
+#: arrive. The dates are only in the prose, and one of them is impossible.
+UNMARKED_CREDIT = b"""<section xmlns="http://xml.house.gov/schemas/uslm/1.0"
+         identifier="/us/usc/t5/s6304">
+  <num value="6304">&#167; 6304.</num><heading> Annual leave; accumulation</heading>
+  <content>Annual leave which is not used accumulates.</content>
+  <sourceCredit>(Pub. L. 89&#8211;554, Sept. 6, 1966, 80 Stat. 519; Pub. L. 114&#8211;328,
+    div. A, title XI, &#167; 1104(a), Feb. 31, 2020, 130 Stat. 2447; Pub. L. 117&#8211;103,
+    June 15, 2022, 136 Stat. 49.)</sourceCredit>
+</section>
+"""
+
+#: A section with operative text and a credit that names no date at all. Constructed rather
+#: than transcribed: title 5 at 119-102 has none, and the policy for one still has to hold.
+UNDATABLE_CREDIT = b"""<section xmlns="http://xml.house.gov/schemas/uslm/1.0"
+         identifier="/us/usc/t5/s6399">
+  <num value="6399">&#167; 6399.</num><heading> A section nothing can date</heading>
+  <content>This text is operative and its credit says when nothing.</content>
+  <sourceCredit>(Added Pub. L. 89&#8211;554, 80 Stat. 519.)</sourceCredit>
 </section>
 """
 
@@ -325,6 +351,40 @@ def test_references_exclude_the_enactment_chain_and_the_notes():
     assert "5 U.S.C. 9999" not in parsed.references
 
 
+# -- validity ----------------------------------------------------------------------
+
+
+def test_the_credit_chain_is_kept_whole_and_the_latest_date_bounds_the_text():
+    """The bound is the *last* amendment, not the enactment: everything before it was
+    superseded, and only the last one is a date the current text is known to postdate."""
+    parsed = read_section_of(SEC6304)
+    assert parsed.credit_dates == ("1966-09-06", "2010-10-15")
+    assert parsed.last_amended == "2010-10-15"
+
+
+def test_the_credit_date_comes_from_the_markup_not_from_the_rendered_prose():
+    """OLRC renders "Oct. 15, 2010" and marks it up as date="2010-10-15". Reading the
+    attribute is exact; reading the prose is the fallback, and it is only a fallback."""
+    parsed = read_section_of(SEC6304)
+    assert "2010-10-15" not in parsed.source_credit
+    assert "2010-10-15" in parsed.credit_dates
+
+
+def test_a_credit_with_no_date_markup_is_read_from_its_prose():
+    """Titles other than 5 arrive converted without <date>. The same dates are still in the
+    prose, and an impossible one -- Feb. 31 -- is dropped rather than repaired, because a
+    silently corrected date becomes the date the store says a statute took effect."""
+    parsed = read_section_of(UNMARKED_CREDIT)
+    assert parsed.credit_dates == ("1966-09-06", "2022-06-15")
+    assert parsed.last_amended == "2022-06-15"
+
+
+def test_a_credit_with_no_date_at_all_yields_no_bound():
+    parsed = read_section_of(UNDATABLE_CREDIT)
+    assert parsed.credit_dates == ()
+    assert parsed.last_amended == ""
+
+
 # -- errors ------------------------------------------------------------------------
 
 
@@ -382,28 +442,28 @@ def test_a_title_that_is_not_a_title_is_rejected():
 class StubClient(UscClient):
     """The release point, without the 3 MB download."""
 
+    xml: bytes = SEC6304
+
     def current_release_point(self) -> ReleasePoint:
         return ReleasePoint(congress=119, law=102, date="2026-07-12")
 
     def title_xml(self, title: str, rp: ReleasePoint) -> bytes:
-        return SEC6304
+        return self.xml
 
 
-def source(tmp_path, **kwargs) -> UscSource:
+def source(tmp_path, *, xml: bytes = SEC6304, **kwargs) -> UscSource:
     config = UscConfig(title="5", cache_dir=tmp_path, **kwargs)
-    return UscSource(config=config, client=StubClient(cache_dir=tmp_path))
+    client = StubClient(cache_dir=tmp_path)
+    client.xml = xml
+    return UscSource(config=config, client=client)
 
 
-def test_documents_are_statutes_and_carry_the_edition_as_an_open_interval(tmp_path):
-    """The USC is republished wholesale, not amended in place: 119-102 replaces 119-101 and
-    there is no per-section amendment date in the file. So valid_from is the edition date
-    and valid_to stays open -- which is a *different* claim from the CFR source's, where
-    valid_from is when an amendment took effect and valid_to closes at the next one."""
+def test_documents_are_statutes_and_carry_an_open_interval(tmp_path):
     doc = next(iter(source(tmp_path, sections=["6304"]).documents()))
     assert isinstance(doc, SourceDoc)
     assert doc.authority == AUTHORITY_STATUTE
     assert doc.authority_name == "statute"
-    assert (doc.valid_from, doc.valid_to) == ("2026-07-12", None)
+    assert doc.valid_to is None
     assert doc.meta["release_point"] == "119-102"
 
 
@@ -431,13 +491,59 @@ def test_a_section_missing_from_the_edition_is_logged_and_skipped(tmp_path, capl
     assert "9999" in caplog.text
 
 
-def test_a_pinned_release_point_is_parsed_and_dated_from_the_document(tmp_path):
-    """No public-law date is attached to a pinned release point, so the edition date falls
-    back to the converter's own <dcterms:created> rather than to today."""
+def test_a_pinned_release_point_is_dated_from_the_document(tmp_path):
+    """No public-law date is attached to a pinned release point, so the *edition* date falls
+    back to the converter's own <dcterms:created> rather than to today. valid_from is
+    unaffected: it comes from the section, not from the edition."""
     doc = next(iter(source(tmp_path, sections=["6304"],
                            release_point="119-102").documents()))
     assert doc.meta["release_point"] == "119-102"
-    assert doc.valid_from == "2026-07-16"
+    assert doc.meta["release_point_date"] == "2026-07-16"
+    assert doc.valid_from == "2010-10-15"
+
+
+def test_valid_from_is_the_last_amendment_not_the_edition(tmp_path):
+    """The bug this replaced: valid_from was the release-point date, so 5 U.S.C. 6304 --
+    in force since 1966 -- claimed to begin on 2026-07-12, and the as-of predicate,
+    ``valid_from <= :v`` in SQL, admitted none of it for any date in the 2017-onward corpus
+    window. The section is not a statute that began in 2026; it is one that has held since
+    at least 2010, and the whole window is inside that."""
+    doc = next(iter(source(tmp_path, sections=["6304"]).documents()))
+    assert doc.valid_from == "2010-10-15"
+    assert doc.valid_from < "2017-01-01"  # corpus.history_floor in configs/default.yaml
+    assert doc.meta["valid_from_basis"] == "source_credit"
+
+
+def test_the_edition_is_still_recoverable_from_a_dated_document(tmp_path):
+    """valid_from no longer says which OLRC file the text was quoted from, so something else
+    has to. ``snapshot`` is what corpus/ingest.py writes into every chunk's source_snapshot."""
+    doc = next(iter(source(tmp_path, sections=["6304"]).documents()))
+    assert doc.meta["release_point"] == "119-102"
+    assert doc.meta["release_point_date"] == "2026-07-12"
+    assert doc.meta["snapshot"] == "2026-07-12"
+    assert doc.meta["source_credit_dates"] == "1966-09-06 2010-10-15"
+
+
+def test_a_section_that_cannot_be_dated_is_dropped_and_counted(tmp_path, caplog):
+    """The interesting case, and the one the old code got wrong twice over. Falling back to
+    the edition date hides the section from every dated query in the window, and inventing an
+    earlier bound lets undatable text answer as current. Neither failure is visible from the
+    outside, so the section is dropped somewhere the count can be read."""
+    src = source(tmp_path, xml=UNDATABLE_CREDIT)
+    with caplog.at_level("WARNING"):
+        docs = list(src.documents())
+    assert docs == []
+    assert src.undated == ["5 U.S.C. 6399"]
+    assert "no datable source credit" in caplog.text
+
+
+def test_the_undated_list_reports_the_last_run_not_the_process(tmp_path):
+    src = source(tmp_path, xml=UNDATABLE_CREDIT)
+    list(src.documents())
+    assert src.undated
+    src.client.xml = SEC6304
+    list(src.documents())
+    assert src.undated == []
 
 
 def test_a_malformed_release_point_setting_is_rejected(tmp_path):

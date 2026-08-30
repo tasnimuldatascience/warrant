@@ -9,6 +9,7 @@
     warrant eval run       -c CONFIG    score every bucket on a split, with ablations
     warrant eval gate      -c CONFIG    fail if quality regressed below the floor
     warrant eval generation -c CONFIG   hallucination, citation precision, abstention
+    warrant eval abstention -c CONFIG   risk-coverage, calibration, ECE
     warrant eval latency   -c CONFIG    latency vs quality per configuration
     warrant autopsy run    -c CONFIG    localize failures; print the failure budget
     warrant replay show    TRACE_ID     what happened on one stored request
@@ -581,6 +582,76 @@ def eval_gate(config: ConfigOpt = None,
                       f"{gate.Floor.load(path).recorded_at}")
         return
     raise typer.Exit(1)
+
+
+@eval_app.command("abstention")
+def eval_abstention(config: ConfigOpt = None,
+                    seed: Annotated[int, typer.Option(help="bootstrap seed")] = 0,
+                    target_risk: Annotated[float, typer.Option(
+                        help="selective risk to hold the operating point to")] = 0.02
+                    ) -> None:
+    """Risk-coverage for the abstention policy, fitted on dev and reported on test.
+
+    The measurement that motivated this: the generator answered 6 of 29 held-out questions
+    with no sufficient evidence retrieved, and abstained on none of them. A system that
+    always answers is most dangerous exactly where it is least competent.
+
+    Reports the learned combiner against two baselines it has to beat honestly -- always
+    answer, and a threshold on the raw top-1 fusion score. It does not beat the second one,
+    which is the finding rather than a failure; see results/eval-005-abstention.md.
+    """
+    from .verify.calibrate import collect_examples, study
+
+    cfg = Config.load(config)
+    with Store(cfg.store_path) as store:
+        buckets, horizon = _buckets(cfg, store)
+        items = [i for v in buckets.values() for i in v]
+        examples = collect_examples(_retriever(cfg, store), items,
+                                    top_k=cfg.retrieve.final_k)
+
+    dev = [e for e in examples if e.split == "dev"]
+    test = [e for e in examples if e.split == "test"]
+    if not dev or not test:
+        console.print("[red]both splits must be non-empty; nothing to fit or report on[/red]")
+        raise typer.Exit(2)
+    result = study(dev, test, seed=seed, target_risk=target_risk)
+
+    console.print(f"horizon {horizon} - dev {len(dev)} - test {len(test)} - "
+                  f"target selective risk {target_risk:.0%}")
+    table = Table(title="risk-coverage on the held-out split", header_style="bold")
+    for col in ("policy", "AURC", "95% CI", "coverage", "selective risk"):
+        table.add_column(col, justify="left" if col == "policy" else "right")
+    for label, policy in (("always answer", result.always_answer),
+                          ("top-1 fusion score", result.baseline_top_score),
+                          ("learned + isotonic", result.learned)):
+        point = policy.at_target
+        # AURC as a percentage because its interval is rendered as one. Two adjacent
+        # columns in different units is the kind of table a reader silently misreads.
+        table.add_row(label, f"{policy.aurc * 100:.2f}%", str(policy.aurc_ci),
+                      f"{point.coverage * 100:.1f}%" if point else "-",
+                      f"{point.risk * 100:.2f}%" if point else "-")
+    console.print(table)
+    baseline = result.baseline_top_score
+    if baseline.at_target is not None and baseline.at_target.coverage == 0.0:
+        # Otherwise this reads as a broken baseline rather than as what it is. The
+        # threshold is chosen on dev, where the baseline's best point misses the risk
+        # budget by one item and so fails closed -- answering nothing. Choosing it on test
+        # instead would hand the baseline a hyperparameter fitted on the reporting set,
+        # which is the comparison this repo has already withdrawn a claim for making.
+        console.print("[dim]the baseline answers nothing at the shipped threshold: its "
+                      "best dev point misses the risk budget by one item, so it fails "
+                      "closed. Its threshold is fitted on dev like the combiner's -- "
+                      "fitting it on test would be the comparison that flatters it.[/dim]")
+    console.print(f"ECE raw [bold]{result.ece_raw:.4f}[/bold] -> "
+                  f"calibrated [bold]{result.ece_calibrated:.4f}[/bold]")
+
+    if result.beat_baseline:
+        console.print("[green]the learned combiner beats the single-feature baseline[/green]")
+    else:
+        console.print(
+            "[yellow]the learned combiner does not beat a threshold on the top-1 fusion "
+            "score.[/yellow] Reported rather than tuned away: eight features, three of them "
+            "constant on this corpus, is not enough signal to beat the one that carries it.")
 
 
 def _paired(cfg: Config, store: Store, items: list) -> None:

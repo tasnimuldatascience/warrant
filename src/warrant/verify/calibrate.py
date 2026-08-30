@@ -31,6 +31,13 @@ The second is the one that matters. A learned combiner that does not beat a sing
 feature has bought nothing but a fitting step and a model file to keep in sync, and this
 module is written so that outcome is as easy to report as the other one.
 
+**It is the outcome.** eval-005: AURC 0.0105 for the combiner against 0.0086 for the raw
+top-1 RRF weight, a paired section-clustered difference of +0.0019 (-0.0017 to +0.0070), and
+``beat_baseline`` False. The combiner's one measured advantage is a calibrated probability --
+ECE 0.020 against an ordering that has none -- and it pays 0.002 AURC for it, because
+isotonic pools items into blocks and pooling destroys the ordering inside a block. Read the
+results doc before wiring the combiner in preference to a threshold on ``top_score``.
+
 Nothing here calls a model, samples, or shuffles. Every number is a deterministic function of
 the inputs, and the two bootstraps take an explicit seed.
 """
@@ -45,14 +52,17 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy.special import expit
 
+from ..eval.bench import BenchItem
 from ..eval.stats import Interval, cluster_bootstrap_ci, paired_delta, wilson_ci
-from .abstain import FEATURES, Signals
+from ..retrieve.hybrid import Retriever
+from .abstain import FEATURES, TOP_K, Signals, signals_from_store
 
-#: Ridge strength on the standardised features, intercept excluded. Not tuned: with a
-#: single-digit count of negatives in some buckets the likelihood is close to separable, and
-#: an unpenalised fit sends coefficients to infinity and every prediction to 0 or 1 -- which
-#: scores perfectly on dev and is uncalibrated everywhere else. This is the smallest value
-#: that keeps the Hessian conditioned, and the results doc reports what happens without it.
+#: Ridge strength on the standardised features, intercept excluded. Not tuned, and it is not
+#: optional: ``guidance_top`` is a constant on a single-source corpus, its standardised column
+#: is exactly zero, and at ``l2 = 0`` the Hessian is singular and the fit raises. The penalty
+#: is also what keeps a dev split with ten negatives from separating and sending every
+#: prediction to 0 or 1. Sweeping it from 0.01 to 10 moves test AURC by 0.003 and never far
+#: enough to overturn the verdict in eval-005, which is what "not tuned" has to mean here.
 DEFAULT_L2 = 1.0
 #: The selective-risk budget the operating point is chosen against.
 TARGET_RISK = 0.02
@@ -75,6 +85,40 @@ class Example:
     bucket: str
     features: tuple[float, ...]
     sufficient: bool
+
+
+#: Buckets whose sufficiency label carries no information and must not enter the study.
+#: ``scope-exclusion`` items are written with an empty acceptable evidence set -- the whole
+#: question is whether something is *absent* -- so ``is_satisfied_by`` returns True for every
+#: possible ranked list. Ninety-five items that cannot be got wrong would raise coverage and
+#: lower base risk without a single one of them being a measurement.
+TAUTOLOGICAL_BUCKETS = frozenset({"scope-exclusion"})
+
+
+def collect_examples(retriever: Retriever, items: Sequence[BenchItem], *,
+                     top_k: int = TOP_K,
+                     exclude: frozenset[str] = TAUTOLOGICAL_BUCKETS) -> list[Example]:
+    """Run retrieval over benchmark items and label each by whether its context sufficed.
+
+    The label needs no human and no generator, which is what makes this study reproducible
+    from a clone: ``BenchItem`` already carries a disjunction of minimal sufficient evidence
+    sets, and whether one of them survived into the final cut is a set question. It is the
+    same quantity ``eval.run.score`` calls sufficiency and ``eval.generation`` calls
+    ``retrieved_evidence`` -- the one that made the six unsupported answers in eval-004
+    visible.
+
+    One retrieval per item and no model call beyond the ones retrieval already makes.
+    """
+    out: list[Example] = []
+    for item in items:
+        if item.bucket in exclude:
+            continue
+        trace = retriever.retrieve(item.query, as_of=item.as_of, scope=item.scope)
+        sig = signals_from_store(retriever.store, trace, top_k=top_k)
+        out.append(Example(item_id=item.id, section_id=item.section_id, split=item.split,
+                           bucket=item.bucket, features=sig.vector,
+                           sufficient=item.is_satisfied_by(trace.final)))
+    return out
 
 
 def design_matrix(examples: Sequence[Example]) -> np.ndarray:
@@ -207,9 +251,14 @@ class Isotonic:
                 blocks.append([label, 1.0, s])
             while len(blocks) >= 2 and (blocks[-2][0] / blocks[-2][1]
                                         > blocks[-1][0] / blocks[-1][1]):
-                total, count, _ = blocks.pop()
+                total, count, upper = blocks.pop()
                 blocks[-1][0] += total
                 blocks[-1][1] += count
+                # The merged block now runs up to the *higher* of the two bounds. Dropping
+                # the popped block's bound leaves a hole: every test score between the two
+                # falls past the merged block in ``searchsorted`` and is read off the next
+                # block up, which is the one block PAVA just proved it does not belong to.
+                blocks[-1][2] = upper
         clip = 1.0 / (2.0 * len(y))
         return cls(bounds=tuple(b[2] for b in blocks),
                    values=tuple(b[0] / b[1] for b in blocks), clip=clip)
@@ -468,6 +517,12 @@ class Curve:
     points: list[Point]
     aurc: float
     aurc_ci: Interval
+    #: The single point this policy is *evaluated* at, which is not always a point that meets
+    #: the budget. When a threshold was transferred from dev it is wherever that threshold
+    #: lands on test, budget or no budget -- reporting only budget-meeting points would hide
+    #: every policy whose dev threshold failed to transfer, which is the failure mode a
+    #: threshold chosen on dev actually has. None only when no threshold was supplied and no
+    #: point on the curve reaches the budget.
     at_target: Point | None
     risk_ci: Interval | None
     coverage_ci: Interval | None
@@ -485,11 +540,15 @@ def _curve(name: str, confidence: np.ndarray, examples: Sequence[Example], *,
     area_ci = cluster_bootstrap_statistic(confidence, error, keys, _aurc_of, seed=seed)
 
     chosen = (operating_point(points, max_risk=target_risk) if threshold is None
-              else _point_at(points, threshold))
+              else _point_at(points, threshold, n=len(examples)))
     risk_ci = coverage_ci = None
     decisions: list[bool] = []
     if chosen is not None:
-        answered = [c >= chosen.threshold for c in confidence]
+        # Against ``threshold``, not ``chosen.threshold``: they select the same items -- no
+        # confidence lies strictly between them -- but only when a threshold was supplied.
+        # For a test-chosen point the two are identical anyway.
+        cut = chosen.threshold if threshold is None else threshold
+        answered = [c >= cut for c in confidence]
         decisions = [a == (not e) for a, e in zip(answered, error, strict=True)]
         errs = [e for a, e in zip(answered, error, strict=True) if a]
         answered_keys = [k for a, k in zip(answered, keys, strict=True) if a]
@@ -500,10 +559,18 @@ def _curve(name: str, confidence: np.ndarray, examples: Sequence[Example], *,
                  risk_ci=risk_ci, coverage_ci=coverage_ci, decisions=decisions)
 
 
-def _point_at(points: Sequence[Point], threshold: float) -> Point | None:
-    """The operating point a fixed threshold actually lands on."""
+def _point_at(points: Sequence[Point], threshold: float, *, n: int) -> Point:
+    """The operating point a fixed threshold actually lands on.
+
+    A threshold above every confidence in the set answers nothing, and that is a real
+    operating point with coverage 0 rather than a missing one. Returning None there would
+    make a policy transferred from dev and found to be too strict for test look
+    indistinguishable from a policy that was never evaluated.
+    """
     reachable = [p for p in points if p.threshold >= threshold]
-    return max(reachable, key=lambda p: p.coverage) if reachable else None
+    if not reachable:
+        return Point(threshold=threshold, answered=0, errors=0, n=n)
+    return max(reachable, key=lambda p: p.coverage)
 
 
 @dataclass(frozen=True)
@@ -540,23 +607,41 @@ class Study:
                 and getattr(self.against_baseline, "significant", False))
 
 
+def dev_threshold(confidence: np.ndarray, dev: Sequence[Example], *,
+                  target_risk: float = TARGET_RISK) -> float:
+    """The tightest-risk threshold a confidence signal reaches on dev, or 1.0.
+
+    Every policy compared in ``study`` gets its threshold from this function on the dev
+    split. An earlier version of this module chose the learned combiner's threshold on dev
+    and the single-feature baseline's on test, which handed the baseline a hyperparameter
+    fitted on the reporting set. The direction of that bias favoured the baseline, so it
+    would have made a null result look safe -- but a comparison that is only unfair in the
+    conservative direction is still not a comparison.
+    """
+    chosen = operating_point(risk_coverage(confidence, [not e.sufficient for e in dev]),
+                             max_risk=target_risk)
+    return chosen.threshold if chosen else 1.0
+
+
 def study(dev: Sequence[Example], test: Sequence[Example], *, l2: float = DEFAULT_L2,
           target_risk: float = TARGET_RISK, seed: int = 0) -> Study:
     """Fit on dev, report on test, against both baselines."""
     policy = fit_policy(dev, l2=l2, target_risk=target_risk)
-    x_test = design_matrix(test)
+    x_dev, x_test = design_matrix(dev), design_matrix(test)
     y_test = [e.sufficient for e in test]
 
     raw = policy.combiner.probabilities(x_test)
     calibrated = policy.confidences(x_test)
 
-    top_score = x_test[:, FEATURES.index("top_score")]
+    top = FEATURES.index("top_score")
+    top_score = x_test[:, top]
     constant = np.zeros(len(test))
 
     learned = _curve("learned combiner", calibrated, test, target_risk=target_risk,
                      threshold=policy.threshold, seed=seed)
-    baseline = _curve("top-1 fusion score", top_score, test, target_risk=target_risk,
-                      threshold=None, seed=seed)
+    baseline = _curve(
+        "top-1 fusion score", top_score, test, target_risk=target_risk,
+        threshold=dev_threshold(x_dev[:, top], dev, target_risk=target_risk), seed=seed)
     return Study(
         n_dev=len(dev), n_test=len(test),
         dev_insufficient=sum(1 for e in dev if not e.sufficient),
@@ -569,13 +654,16 @@ def study(dev: Sequence[Example], test: Sequence[Example], *, l2: float = DEFAUL
         ece_raw=ece(raw, y_test), ece_calibrated=ece(calibrated, y_test),
         brier_raw=brier(raw, y_test), brier_calibrated=brier(calibrated, y_test),
         learned=learned,
-        learned_uncalibrated=_curve("learned, uncalibrated", raw, test,
-                                    target_risk=target_risk, threshold=None, seed=seed),
+        learned_uncalibrated=_curve(
+            "learned, uncalibrated", raw, test, target_risk=target_risk,
+            threshold=dev_threshold(policy.combiner.probabilities(x_dev), dev,
+                                    target_risk=target_risk), seed=seed),
         baseline_top_score=baseline,
+        # No threshold to transfer: this policy has one reachable operating point and it is
+        # coverage 1.0. Passing a dev threshold would be theatre.
         always_answer=_curve("always answer", constant, test, target_risk=target_risk,
-                             threshold=None, seed=seed),
+                             threshold=-np.inf, seed=seed),
         against_baseline=paired_delta(
-            learned.decisions or [False] * len(test),
-            baseline.decisions or [False] * len(test),
+            learned.decisions, baseline.decisions,
             [e.section_id or e.item_id for e in test], seed=seed),
     )

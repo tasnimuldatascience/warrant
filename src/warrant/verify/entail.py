@@ -13,11 +13,21 @@ belongs to the abstention policy, and the text of the regulation belongs to the 
 verifier that silently dropped claims would be substituting a 184M-parameter model trained on
 newswire for 5 CFR, and it would do so with no record that it had.
 
-The measured reason for that caution is in `docs/results/eval-007-entailment.md`: the model
-scores 90.3% on MNLI-matched and 71.3% on 148 hand-labelled pairs from this corpus. The
-20-point drop is the finding. What survives the drop is the *contradiction* channel, which is
-the one thing span alignment structurally cannot do; what does not survive is any use of the
-entail/neutral boundary as a gate.
+The measured reason for that caution is in `docs/results/eval-007-entailment.md`, and it is
+not the reason that was expected. Domain shift does not show up as a collapsed headline: on
+129 pairs the generator actually emitted against 5 CFR, the model is right 86.8% of the time,
+a few points under its published MNLI score. It shows up in the class breakdown. Those 129
+pairs are 97% correct on entailment, **50% on neutral and 33% on contradiction** -- the
+headline is carried entirely by the generator's habit of copying its premise nearly verbatim,
+and on the two classes a verifier exists to catch, the model is at or near chance.
+
+Against `verify.align` on the same 129 pairs the difference is **+2.3 points, p = 0.55, not
+measurable** -- the same verdict this repository already reached about its cross-encoder
+reranker, and it is reported here the same way. On 53 hand-written minimal edits of real
+regulatory text -- one modality flipped, one number changed, one deadline moved -- it is
++49.1 points (p = 9e-7). So the *contradiction* channel is what this module buys, because it
+is the one thing lexical overlap structurally cannot do; the entail/neutral boundary is not,
+and is never used as a gate.
 
 Premise is the regulation, hypothesis is the claim, and never the other way round. NLI is
 directional: regulatory text routinely entails a claim it does not resemble, and a claim
@@ -38,36 +48,44 @@ from dataclasses import dataclass, field
 from .align import Span, _sentences
 
 DEFAULT_MODEL = "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
-#: Order is not assumed -- it is read from the checkpoint's ``id2label`` at load time.
-#: `cross-encoder/nli-deberta-v3-base` and this model order their heads differently, and a
-#: hard-coded index silently turns every entailment into a contradiction.
+#: Order is not assumed -- it is read from the checkpoint's ``id2label`` at load time. This
+#: model's head runs entailment/neutral/contradiction; `cross-encoder/nli-deberta-v3-base`,
+#: the other candidate, runs contradiction/entailment/neutral. A hard-coded index 0 reads the
+#: second checkpoint's contradictions as support, with every published number still in range.
 LABELS = ("entail", "neutral", "contradict")
 _ALIASES = {"entailment": "entail", "entail": "entail",
             "neutral": "neutral",
             "contradiction": "contradict", "contradict": "contradict"}
 
-#: DeBERTa-v3's positional embeddings stop here. 99% of in-force chunks are under 172 words,
-#: so the windowing path below is rare; it exists because the 0.02% that exceed it are the
-#: long procedural sections, which is exactly where a truncated premise would drop the
-#: proviso that decides the answer.
+#: DeBERTa-v3's positional embeddings stop here. Measured on the 9,961 in-force chunks: p99
+#: is 209 tokens and exactly one chunk exceeds 500, so the windowing path below is all but
+#: dead code. It exists because that one is a long procedural section, which is exactly the
+#: shape of text where a truncated premise drops the proviso that decides the answer.
 MAX_LENGTH = 512
-#: Chosen by measurement, not by feel: throughput is flat from 16 upward on an RTX 5070 and
-#: 32 is the largest batch that co-exists with the 1.5B generator inside 8 GB.
+#: Chosen by measurement, not by feel: on an RTX 5070 Laptop throughput *peaks* at 16 (458
+#: pairs/s, against 323 at 8 and 395 at 32) and weights plus batch-16 activations are 918 MB,
+#: which co-exists with the 1.5B generator inside 8 GB.
 DEFAULT_BATCH = 16
 
-#: Temperature fitted by NLL on the 148-pair probe set (see the results doc). >1 means the
-#: raw head is overconfident, which is the expected direction under domain shift: the model
-#: is as sure about regulatory prose as it was about the captions it was trained on.
+#: Temperature fitted by NLL on the 182-pair probe set (see the results doc); refits leaving
+#: out one section at a time stay inside 1.66-1.74, so it is not one section's artefact. It
+#: takes ECE from 9.5% to 4.0%. >1 means the raw head is overconfident, which is the expected
+#: direction under domain shift: the model is as sure about regulatory prose as it was about
+#: the captions it was trained on.
 CALIBRATION_TEMPERATURE = 1.72
 
-#: Below this calibrated confidence the model was measured to be no better than the base
-#: rate, so a verdict here is reported as `uncertain` rather than believed in either
-#: direction. This is the abstain band, and it is wide on purpose -- see the reliability
-#: table in the results doc, where the two lowest bins are the ones it covers.
+#: Above this calibrated confidence the model was right on 89.4% of 170 probe pairs; below
+#: it, on 7 of 12. That gap is the whole justification for the band, and a verdict inside it
+#: is reported as `uncertain` rather than believed in either direction. Raising the floor
+#: further buys almost nothing -- at 0.85 accuracy above the line moves to 91.8% and coverage
+#: falls to 74% -- so the band is set where the separation is, not where the accuracy is
+#: highest.
 DECISION_FLOOR = 0.70
-#: Contradiction is reported at a *lower* bar than support. Asymmetric because the costs
-#: are: a missed contradiction ships a claim that the regulation denies, a false one adds a
-#: flag a human reads. The results doc measures both rates rather than asserting the trade.
+#: Contradiction is reported at a *lower* bar than support. Asymmetric because the costs are:
+#: a missed contradiction ships a claim that the regulation denies, a false one adds a flag a
+#: human reads. The sweep in the results doc is flat across 0.40-0.60 (recall 76%, precision
+#: 73%) and this is its middle; 0.30 scores two more true flags on 25 contradictions, which is
+#: inside the noise of a set that small and not worth tuning to.
 CONTRADICT_FLOOR = 0.50
 
 SUPPORTED = "supported"
@@ -284,10 +302,11 @@ def brier(probs: Sequence[Sequence[float]], gold: Sequence[int]) -> float:
 
 # -- the model --------------------------------------------------------------------
 
-#: One model per (name, revision) per process. Constructing it costs ~9 s and ~740 MB, and a
-#: per-call construction would put the load time inside every latency number this module
-#: publishes. Guarded because two cold threads both taking the check-then-set branch is an
-#: out-of-memory error on an 8 GB card that is already holding the generator.
+#: One model per (name, revision) per process. Constructing it costs ~1.4 s from a warm disk
+#: cache and 377 MB of VRAM, and a per-call construction would put the load time inside every
+#: latency number this module publishes. Guarded because two cold threads both taking the
+#: check-then-set branch is an out-of-memory error on an 8 GB card already holding the
+#: generator.
 _MODELS: dict[tuple[str, str | None, str], tuple] = {}
 _MODEL_LOCK = threading.Lock()
 
@@ -358,6 +377,11 @@ class Entailer:
     Stateless between calls apart from ``stats``, which accumulates the throughput this
     module is required to publish. A verifier whose cost is unmeasured is a verifier nobody
     can decide to put on the synchronous path.
+
+    Measured, so that decision can be made: a whole answer is 2.4 (claim, chunk) pairs on
+    average, one batched call, **24 ms p50 on GPU and ~200 ms on CPU**. Generation of the
+    same answer takes about 20 s at 21.3 tok/s, so this is 0.1% of it on GPU and 1% on CPU.
+    It belongs on the synchronous path; nothing about its cost justifies an async audit.
     """
 
     model_name: str = DEFAULT_MODEL
@@ -383,11 +407,18 @@ class Entailer:
         Batches are formed in input order and never sorted by length. Sorting is the obvious
         throughput win and it makes the result depend on which other pairs happened to be in
         the request: padding changes the float arithmetic, and a verdict that moves because a
-        different claim was scored alongside it is not reproducible from a stored trace.
-        Measured cost of refusing to sort on this corpus: see the results doc.
+        different claim was scored alongside it is not reproducible from a stored trace. The
+        measured cost on this corpus is 455 against 560 pairs/s -- 19%, on a stage that is
+        0.1% of answer latency.
+
+        This buys reproducibility for a *fixed* batch size, not independence from batching.
+        Re-scoring the probe set at batch 7 instead of 16 moved logits by up to 0.014 and no
+        argmax at all, so `batch_size` belongs in a trace beside the model name.
         """
         import torch
 
+        if not pairs:
+            return []
         device = _resolve_device(self.device)
         tokenizer, model, order = _load(self.model_name, self.revision, device,
                                         self.deterministic)
@@ -420,11 +451,13 @@ class Entailer:
         apart, and dropping the tail silently converts a conditional rule into an absolute
         one.
         """
+        if not sources:
+            return ClaimSupport(claim=claim)
         expanded: list[tuple[str, str]] = []
         origin: list[tuple[str, Span | None]] = []
         for chunk_id, text in sources.items():
             windows = self._windows(text, claim)
-            self.stats["windowed"] += len(windows) > 1
+            self.stats["windowed"] += int(len(windows) > 1)
             for span in windows:
                 expanded.append((text[span.start:span.end] if span else text, claim))
                 origin.append((chunk_id, span))
@@ -485,5 +518,10 @@ def _decisiveness(v: Verdict) -> float:
 
 
 def _chunks(items: list, size: int) -> Iterator[list]:
-    for i in range(0, len(items), max(1, size)):
-        yield items[i:i + size]
+    # Clamped once and used for both the step and the slice. Clamping only the step -- which
+    # is the natural way to write this -- makes ``batch_size=0`` yield one empty list per
+    # item, so every pair comes back unscored and the strict zip in `score_claim` raises
+    # somewhere unrelated to the config that caused it.
+    width = max(1, size)
+    for i in range(0, len(items), width):
+        yield items[i:i + width]

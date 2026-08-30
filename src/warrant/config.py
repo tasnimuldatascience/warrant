@@ -179,6 +179,35 @@ class SourcesConfig(BaseModel):
     govinfo: GovInfoConfig = Field(default_factory=GovInfoConfig)
 
 
+class EntailConfig(BaseModel):
+    """The NLI verifier, off by default, with the number that decides it written here.
+
+    Off for the same reason ``index.rerank`` carries its own number: on real generator
+    output it buys **+2.3 points over span alignment, p=0.55 -- not measurable**. The repo's
+    standard for a stage that costs something and cannot be shown to help is that it ships
+    behind a flag with the measurement beside it, not that it ships on and nobody re-checks.
+
+    What it *does* buy is a second channel rather than a better score. On claims flipped to
+    contradict their evidence it is +49.1 points (p=8.7e-07), because the span aligner finds
+    a supporting span in all 22 of them -- a contradiction shares *more* vocabulary with its
+    premise than a genuine paraphrase does, so no amount of tuning the aligner reaches it.
+
+    The class breakdown is the caveat that matters: macro accuracy on generator output is
+    60.1%, and **half of the generator's neutral pairs come back as entailment**. Reporting
+    only the 86.8% micro number would ship a verifier that is 50% accurate on exactly the
+    cases it exists to catch.
+    """
+
+    enabled: bool = False
+    model: str = "cross-encoder/nli-deberta-v3-base"
+    revision: str | None = None
+    #: Measured peak at 458 pairs/s on GPU; an answer is 2.39 pairs, so one batched call.
+    batch_size: int = 16
+    #: Fitted out-of-fold; leave-one-section-out refits land in 1.66-1.74. It moves the
+    #: verdict, so it is hashed into the config like every other behaviour-affecting field.
+    temperature: float = 1.72
+
+
 class EvalConfig(BaseModel):
     buckets: list[str] = Field(default_factory=lambda: ["temporal", "generated", "human"])
     bootstrap_samples: int = 1000
@@ -192,6 +221,7 @@ class Config(BaseModel):
     retrieve: RetrieveConfig = Field(default_factory=RetrieveConfig)
     generate: GenerateConfig = Field(default_factory=GenerateConfig)
     sources: SourcesConfig = Field(default_factory=SourcesConfig)
+    entail: EntailConfig = Field(default_factory=EntailConfig)
     eval: EvalConfig = Field(default_factory=EvalConfig)
 
     @classmethod
