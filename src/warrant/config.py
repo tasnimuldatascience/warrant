@@ -46,6 +46,10 @@ class StoreConfig(BaseModel):
     #: rebuilt wholesale and traces must survive that, since a trace whose corpus was
     #: replaced is exactly the one worth replaying.
     traces: str = "data/traces.sqlite3"
+    #: The recorded quality floor. Under results/ rather than data/ because it is an
+    #: artifact of a run someone was willing to defend, and it belongs in the repository
+    #: next to the report it came from -- a floor that is gitignored gates nothing.
+    floor: str = "results/eval-floor.json"
 
 
 class DiffConfig(BaseModel):
@@ -220,6 +224,11 @@ class Config(BaseModel):
     @property
     def traces_path(self) -> Path:
         p = Path(self.store.traces)
+        return p if p.is_absolute() else REPO_ROOT / p
+
+    @property
+    def floor_path(self) -> Path:
+        p = Path(self.store.floor)
         return p if p.is_absolute() else REPO_ROOT / p
 
     @property

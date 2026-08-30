@@ -7,6 +7,7 @@
     warrant corpus diff    -c CONFIG    classify what changed between consecutive snapshots
     warrant index build    -c CONFIG    embed the store into the dense index
     warrant eval run       -c CONFIG    score every bucket on a split, with ablations
+    warrant eval gate      -c CONFIG    fail if quality regressed below the floor
     warrant eval generation -c CONFIG   hallucination, citation precision, abstention
     warrant eval latency   -c CONFIG    latency vs quality per configuration
     warrant autopsy run    -c CONFIG    localize failures; print the failure budget
@@ -38,9 +39,10 @@ from .corpus.diff import Change, diff_snapshots
 from .corpus.ecfr import ECFRClient
 from .corpus.ingest import ingest
 from .corpus.parse import parse_sections
+from .eval import gate
 from .eval.bench import LAST_TEMPORAL_DISCARDS, mine_all
 from .eval.run import score
-from .index.store import Store
+from .index.store import Store, now
 from .retrieve.dense import DenseIndex, uncovered
 from .retrieve.dense import build as build_dense
 from .retrieve.hybrid import Retriever
@@ -519,6 +521,66 @@ def eval_run(config: ConfigOpt = None,
 
         if ablate and "temporal" in buckets:
             _paired(cfg, store, buckets["temporal"])
+
+
+@eval_app.command("gate")
+def eval_gate(config: ConfigOpt = None,
+              split: Annotated[str, typer.Option(help="which split to gate on")] = "test",
+              record: Annotated[bool, typer.Option(
+                  help="overwrite the floor with this run instead of checking against it")]
+              = False) -> None:
+    """Fail if quality has regressed below the recorded floor.
+
+    The floor is the lower end of the reference run's section-clustered bootstrap interval,
+    not a hand-picked threshold: sufficiency is 97.8% with a 94.9-100 interval, so a gate at
+    97.8% would fail about half of all unchanged runs, and one set a little below it would
+    be a number nobody could defend. Passing means "not distinguishable from the reference".
+
+    Exits 1 on a regression, 0 otherwise. A configuration change makes the two runs
+    incomparable and is reported as such rather than as a pass.
+    """
+    cfg = Config.load(config)
+    path = cfg.floor_path
+    with Store(cfg.store_path) as store:
+        buckets, horizon = _buckets(cfg, store)
+        buckets = {k: [i for i in v if i.split == split] for k, v in buckets.items()}
+        buckets = {k: v for k, v in buckets.items() if v}
+        retriever = _retriever(cfg, store)
+        results = {name: score(retriever, items, samples=cfg.eval.bootstrap_samples)
+                   for name, items in sorted(buckets.items())}
+
+    if record:
+        floor = gate.record(results, config_hash=cfg.hash, split=split,
+                            recorded_at=now())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(floor.to_json(), encoding="utf-8")
+        console.print(f"recorded {len(floor.buckets)} bucket floors to [bold]{path}[/bold] "
+                      f"at config {cfg.hash}, horizon {horizon}")
+        for b in floor.buckets:
+            lo = "n/a" if b.sufficiency_floor is None else f"{b.sufficiency_floor * 100:.1f}%"
+            console.print(f"  {b.bucket:<18} n={b.n:<4} sufficiency floor {lo}")
+        return
+
+    if not path.exists():
+        console.print(f"[red]no floor at {path}.[/red] Record one with "
+                      "`warrant eval gate --record` on a run you are willing to defend.")
+        raise typer.Exit(2)
+
+    result = gate.check(gate.Floor.load(path), results, config_hash=cfg.hash)
+    if not result.comparable:
+        console.print(f"[yellow]incomparable[/yellow] {result.detail}")
+        return
+    for note in result.improvements:
+        console.print(f"  [green]above floor[/green] {note}")
+    for violation in result.violations:
+        console.print(f"  [red]REGRESSION[/red] {violation}")
+    if result.detail:
+        console.print(f"[red]{result.detail}[/red]")
+    if result.ok:
+        console.print(f"[green]gate passed[/green] against the floor recorded at "
+                      f"{gate.Floor.load(path).recorded_at}")
+        return
+    raise typer.Exit(1)
 
 
 def _paired(cfg: Config, store: Store, items: list) -> None:

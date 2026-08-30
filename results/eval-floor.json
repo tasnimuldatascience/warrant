@@ -1,0 +1,35 @@
+{
+  "buckets": [
+    {
+      "bucket": "human",
+      "distractor_ceiling": null,
+      "distractors_reachable": 0,
+      "n": 29,
+      "sufficiency_floor": 0.5882352941176471
+    },
+    {
+      "bucket": "scope",
+      "distractor_ceiling": null,
+      "distractors_reachable": 0,
+      "n": 42,
+      "sufficiency_floor": 1.0
+    },
+    {
+      "bucket": "scope-exclusion",
+      "distractor_ceiling": null,
+      "distractors_reachable": 0,
+      "n": 42,
+      "sufficiency_floor": null
+    },
+    {
+      "bucket": "temporal",
+      "distractor_ceiling": null,
+      "distractors_reachable": 0,
+      "n": 229,
+      "sufficiency_floor": 0.9428571428571428
+    }
+  ],
+  "config_hash": "ffc47387b1e4",
+  "recorded_at": "2026-08-30T20:30:54+00:00",
+  "split": "test"
+}
