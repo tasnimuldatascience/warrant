@@ -368,14 +368,21 @@ def bound_excerpts(excerpts: Iterable[tuple[str, str, str]], *,
 
 # -- 3. admission -----------------------------------------------------------------------
 
-#: One client's sustained answer rate, set to the server's own measured ceiling: 21.3 tok/s
-#: unbatched is 0.051 req/s is 3.06 requests/minute. A client inside the ceiling is never
-#: limited; a client above it is refused for the cost of a dict lookup rather than admitted
-#: into a 20-second queue wait it will lose anyway.
-ANSWER_RATE_PER_S = 3.0 / 60.0
+#: One client's sustained answer rate. Derived from the server's measured ceiling of 7.7
+#: answers/minute, whose *stable* band -- where the open-loop queue stops growing -- is 6/min.
+#: One client gets 4, deliberately below that: a single caller is not entitled to the whole
+#: instance, and leaving headroom is what keeps a second client from meeting a queue rather
+#: than a server.
+#:
+#: It was 3/min, derived from a throughput figure since measured wrong by 37%. The constant
+#: is written as an expression of the ceiling rather than as a number so the next correction
+#: moves it too.
+ANSWER_RATE_PER_S = 4.0 / 60.0
 ANSWER_BURST = 3
-#: Reads are a different order: 18.4 ms p50, and aggregate retrieval throughput peaks at
-#: 66 QPS across 4 threads. 10/s sustained caps one client at ~15% of that ceiling, which
+#: Reads are a different order: 18.4 ms p50, and aggregate retrieval throughput peaks at a
+#: measured 23.9 QPS across 4 workers -- not the 66 this comment used to claim, which was
+#: 1/latency times threads rather than anything observed. 10/s sustained caps one client at
+#: ~42% of that ceiling, which
 #: leaves the timeline and diff views — which fire several requests per interaction — unlimited
 #: in practice.
 READ_RATE_PER_S = 10.0
@@ -507,13 +514,31 @@ class RateLimitMiddleware:
         self.trust_forwarded = trust_forwarded
         self.enabled = enabled
 
+    @staticmethod
+    def _generates(scope: dict[str, Any]) -> bool:
+        """Whether this request will actually take the generation slot.
+
+        Read off the raw query string rather than parsed: this runs before routing, and the
+        only value that turns generation *off* is an explicit false, so anything unparseable
+        is treated as an answer. Erring toward the stricter bucket is the safe direction --
+        the cost of being wrong is a needless 429, not an unmetered GPU second.
+        """
+        raw = scope.get("query_string", b"")
+        query = raw.decode("latin-1", "replace") if isinstance(raw, bytes) else str(raw)
+        return "generate=false" not in query.lower().replace("%20", "")
+
     async def __call__(self, scope: dict[str, Any], receive: Receive, send: Send) -> None:
         if not self.enabled or scope["type"] != "http":
             return await self.app(scope, receive, send)
         path = scope.get("path", "")
         if path in self.exempt or not path.startswith(self.prefix):
             return await self.app(scope, receive, send)
-        limiter = self.answer if path in self.answer_paths else self.read
+        # `?generate=false` is retrieval only: 82ms, no GPU, no generation slot. Metering it
+        # against the answer bucket capped it at 3/min and refused 27 of 30 requests to a
+        # path that costs less than the timeline view beside it -- a limiter defending a
+        # resource the request never touches. The query string decides, not the path alone.
+        limiter = (self.answer if path in self.answer_paths and self._generates(scope)
+                   else self.read)
         wait = limiter.wait(client_key(scope, trust_forwarded=self.trust_forwarded))
         if wait <= 0.0:
             return await self.app(scope, receive, send)

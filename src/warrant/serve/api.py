@@ -638,13 +638,26 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
     # -- infrastructure ---------------------------------------------------------
 
     @app.get("/health", response_model=HealthResponse)
-    def health() -> HealthResponse:
-        """Liveness. Touches nothing, so a missing corpus cannot make it fail."""
+    async def health() -> HealthResponse:
+        """Liveness. Touches nothing, so a missing corpus cannot make it fail.
+
+        ``async def`` is the whole fix, and it is worth 188 seconds. A sync handler runs in
+        Starlette's thread pool, which is four threads shared with ``/api/ask`` -- so under
+        100 concurrent asks a probe that does arithmetic on two floats reached **188s p50**,
+        queued behind generations it never touches. A liveness probe that fails under load is
+        worse than none: it tells the orchestrator to restart the one instance still working.
+        """
         return HealthResponse(status="ok", uptime_s=round(time.monotonic() - rt.started, 3))
 
     @app.get("/ready", response_model=ReadyResponse)
-    def ready(response: Response) -> ReadyResponse:
-        """Readiness: corpus present and non-empty, models built. 503 until both hold."""
+    async def ready(response: Response) -> ReadyResponse:
+        """Readiness: corpus present and non-empty, models built. 503 until both hold.
+
+        Async for the same reason as ``/health``: it shares the thread pool with generation
+        and was measured queueing behind it. The work it does is a COUNT and a set
+        difference over an array already in memory, both microseconds, and neither is worth
+        a thread that a request is waiting for.
+        """
         corpus, chunks, detail = False, None, rt.warm_error
         try:
             chunks = rt.store.count()

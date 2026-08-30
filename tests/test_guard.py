@@ -407,7 +407,10 @@ def test_a_client_gets_its_burst_then_waits_for_the_ceiling():
     assert [limiter.allow("10.0.0.1") for _ in range(3)] == [True, True, True]
 
     wait = limiter.wait("10.0.0.1")
-    assert wait == pytest.approx(20.0)                # one token every 20 s
+    # Derived, not hardcoded. This line said 20.0 while the rate was 3/min; the rate moved to
+    # 4/min when the throughput it came from was re-measured, and a literal here would have
+    # made a correct change look like a regression.
+    assert wait == pytest.approx(1.0 / guard.ANSWER_RATE_PER_S)
     clock.advance(20.0)
     assert limiter.allow("10.0.0.1") is True
     assert limiter.stats() == {"clients": 1, "allowed": 4, "refused": 1, "evicted": 0}
@@ -498,18 +501,22 @@ def test_over_ceiling_load_gets_429_with_an_actionable_retry_after(limited_app):
 
     refused = client.get("/api/ask?q=annual+leave")
     assert refused.status_code == 429
-    # The bucket's own arithmetic, not a constant: a client told to wait 30 s when a token
-    # arrives in 20 s wastes a third of a ceiling that is only three requests a minute.
-    assert refused.headers["retry-after"] == "20"
+    # The bucket's own arithmetic, not a constant: a client told to wait longer than its
+    # next token takes to arrive wastes a slice of a ceiling measured in single digits per
+    # minute. Read off the rate so a re-measured ceiling moves the assertion with it.
+    import math
+
+    assert refused.headers["retry-after"] == str(math.ceil(1.0 / guard.ANSWER_RATE_PER_S))
     assert "requests/minute" in refused.json()["detail"]
 
-    clock.advance(20.0)
+    clock.advance(math.ceil(1.0 / guard.ANSWER_RATE_PER_S))
     assert client.get("/api/ask?q=annual+leave").status_code == 200
 
 
 def test_reads_and_answers_are_limited_separately(limited_app):
-    """Retrieval is 18.4 ms p50 and generation is 19.7 s. One limit for both would either
-    throttle the timeline view to three requests a minute or leave the generator unguarded."""
+    """Retrieval is 18.4 ms p50 and generation is 6.6 s. One limit for both would either
+    throttle the timeline view to a handful of requests a minute or leave the generator
+    unguarded."""
     client, _, _ = limited_app
     for _ in range(4):
         assert client.get("/api/ask?q=annual+leave").status_code in (200, 429)
@@ -791,3 +798,26 @@ def test_the_error_handler_re_raises_what_is_not_its_business():
     keep its own traceback rather than being flattened into a guard response."""
     with pytest.raises(ValueError):
         anyio.run(guard.guard_error_handler, None, ValueError("not a guard error"))
+
+
+def test_the_gpu_free_path_is_not_metered_as_an_answer(limited_app):
+    """`?generate=false` is retrieval only: 82 ms, no GPU, no generation slot. Metering it
+    against the answer bucket capped it at the answer rate and refused 27 of 30 requests to
+    a path costing less than the timeline view beside it -- a limiter defending a resource
+    the request never touches. Found by a load test, not by a unit test, because nothing
+    here had ever asked which bucket a query string lands in."""
+    client, _clock, _answer = limited_app
+    codes = [client.get("/api/ask?q=annual+leave&generate=false").status_code
+             for _ in range(6)]
+    assert all(c == 200 for c in codes), codes
+
+
+def test_an_unparseable_generate_flag_is_treated_as_an_answer(limited_app):
+    """This runs before routing, so the query string is raw. The only value that turns
+    generation off is an explicit false; anything else takes the stricter bucket, because
+    the cost of guessing wrong that way is a needless 429 rather than an unmetered GPU
+    second."""
+    client, _clock, _answer = limited_app
+    codes = [client.get("/api/ask?q=annual+leave&generate=maybe").status_code
+             for _ in range(6)]
+    assert 429 in codes, codes
