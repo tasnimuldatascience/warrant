@@ -32,15 +32,29 @@ if TYPE_CHECKING:  # pragma: no cover
 RRF_K = 60
 
 
-def fts_query(text: str) -> str:
-    """Escape a natural-language query for FTS5.
+#: A bag-of-words OR gains nothing from a token appearing twice, and loses a great deal:
+#: FTS5 merges the same postings list against itself once per repeat. Measured against the
+#: 12,858-chunk corpus, a query of one token repeated 2,600 times -- 15.6 KB, comfortably
+#: inside the HTTP parser's header limit -- took 29 seconds of pinned CPU against 16 ms for
+#: a normal query. That is a ~1,800x amplification available to one unauthenticated GET,
+#: and forty of them wedge the whole threadpool.
+MAX_QUERY_TOKENS = 64
+
+
+def fts_query(text: str, *, max_tokens: int = MAX_QUERY_TOKENS) -> str:
+    """Escape a natural-language query for FTS5, deduplicated and capped.
 
     FTS5 reads bare punctuation as syntax, so a heading containing a colon or a hyphen is a
     parse error rather than a query. Quoting each token keeps the query literal, which is
     what a lexical baseline should be.
+
+    Deduplication is a denial-of-service fix rather than a tidy-up -- see
+    ``MAX_QUERY_TOKENS`` -- and it costs nothing in retrieval quality, because a repeated
+    term contributes no postings that its first occurrence did not.
     """
     tokens = [t for t in ("".join(c if c.isalnum() else " " for c in text)).split() if t]
-    return " OR ".join(f'"{t}"' for t in tokens) or '""'
+    unique = list(dict.fromkeys(tokens))[:max_tokens]
+    return " OR ".join(f'"{t}"' for t in unique) or '""'
 
 
 @dataclass
@@ -93,7 +107,6 @@ class Retriever:
     final_k: int = 8
     temporal: bool = True
     parts_universe: list[str] = field(default_factory=list)
-    _query_cache: dict[str, object] = field(default_factory=dict, repr=False)
 
     def retrieve(self, query: str, *, as_of: str, scope: Scope = GOVERNMENT_WIDE,
                  system_time: str | None = None) -> Trace:
@@ -128,13 +141,12 @@ class Retriever:
     # -- stages ------------------------------------------------------------------
 
     def _dense(self, query: str, allowed: set[int]) -> list[str]:
-        from .dense import encode_query
-
         assert self.dense_index is not None
-        vec = self._query_cache.get(query)
-        if vec is None:
-            vec = encode_query(query, model_name=self.dense_index.model)
-            self._query_cache[query] = vec
+        # The index embeds the query with its own encoder. Caching is bounded inside
+        # encode_query: an unbounded dict keyed on raw query text is a memory-exhaustion
+        # vector -- ~1.8 KB per entry, 1.7 GiB per million distinct queries, for the
+        # lifetime of the process.
+        vec = self.dense_index.encode(query)
         hits = self.dense_index.search(vec, allowed=allowed, limit=self.candidates_dense)
         rows = self.store.rows_by_id([i for i, _ in hits])
         return [rows[i]["version_id"] for i, _ in hits if i in rows]

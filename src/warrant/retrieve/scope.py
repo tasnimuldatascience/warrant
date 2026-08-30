@@ -49,6 +49,14 @@ PART_RESTRICTIONS: dict[str, dict[str, frozenset[str]]] = {
 KNOWN_FACETS = frozenset({"pay_system", "service"})
 
 
+def known_values(facet: str) -> frozenset[str]:
+    """Every value of ``facet`` that some part actually governs."""
+    values: set[str] = set()
+    for restriction in PART_RESTRICTIONS.values():
+        values |= restriction.get(facet, frozenset())
+    return frozenset(values)
+
+
 @dataclass(frozen=True)
 class Scope:
     """Who is asking. An unspecified facet is not filtered on.
@@ -62,10 +70,26 @@ class Scope:
 
     @classmethod
     def of(cls, **facets: str) -> Scope:
+        """Build a profile, rejecting both unknown facet names and unknown facet values.
+
+        Validating the *value* matters more than validating the name. An unknown name is
+        loud; an unknown value used to be silent and dangerous: ``pay_system="bogus"``
+        matches no part's allowed set, so ``governs`` returned False for every restricted
+        part and quietly removed five parts -- 41% of the corpus -- before returning a
+        confident, degraded answer with HTTP 200. A typo has to be an error, not a filter.
+        """
         unknown = set(facets) - KNOWN_FACETS
         if unknown:
-            raise ValueError(f"unknown scope facet(s): {sorted(unknown)}")
-        return cls(facets={k: v for k, v in facets.items() if v})
+            raise ValueError(
+                f"unknown scope facet(s): {sorted(unknown)}; "
+                f"known facets are {sorted(KNOWN_FACETS)}")
+        clean = {k: v for k, v in facets.items() if v}
+        for facet, value in clean.items():
+            allowed = known_values(facet)
+            if value not in allowed:
+                raise ValueError(
+                    f"unknown {facet} {value!r}; known values are {sorted(allowed)}")
+        return cls(facets=clean)
 
     def governs(self, part: str) -> bool:
         """Does the regulation in ``part`` apply to this profile?"""

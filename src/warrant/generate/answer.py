@@ -29,9 +29,10 @@ from ..verify.align import Span, align
 
 DEFAULT_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
 MAX_NEW_TOKENS = 420
-#: Evidence paragraphs offered to the model. More context is not free on a 1.5B model: the
-#: cited-chunk accuracy falls off well before the context window does.
-MAX_CONTEXT_CHUNKS = 8
+#: Fallback only. The real value comes from `retrieve.context_k` so that widening retrieval
+#: widens what the generator sees. These were independently 16 and 8 for a while, which threw
+#: away the tuning result the failure budget had just paid for.
+MAX_CONTEXT_CHUNKS = 16
 
 SYSTEM = (
     "You answer questions about US federal HR regulation using only the numbered excerpts "

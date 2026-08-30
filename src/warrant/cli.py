@@ -14,6 +14,7 @@ subcommand which raises NotImplementedError is worse than one that stays quiet a
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from pathlib import Path
 from typing import Annotated
@@ -129,8 +130,19 @@ def corpus_build(config: ConfigOpt = None,
     client = _client(cfg)
     path = cfg.store_path
     if rebuild and path.exists():
-        path.unlink()
+        for suffix in ("", "-wal", "-shm"):
+            p = path.with_name(path.name + suffix)
+            if p.exists():
+                p.unlink()
     with Store(path) as store:
+        if not store.is_empty():
+            # Ingesting into a non-empty store used to corrupt it silently: every snapshot
+            # was re-applied from scratch, duplicating superseded versions and closing
+            # in-force ones at their own start date. Refuse rather than append.
+            console.print(
+                f"[red]{path} already holds {store.count():,} chunk versions.[/red] "
+                "Ingest is not incremental; pass --rebuild to start clean.")
+            raise typer.Exit(1)
         table = Table(title="bitemporal ingest", header_style="bold")
         for col in ("part", "snaps", "versions", "chunks", "closed", "unchanged"):
             table.add_column(col, justify="right")
@@ -281,7 +293,14 @@ def eval_run(config: ConfigOpt = None,
 def autopsy_run(config: ConfigOpt = None,
                 bucket: Annotated[str, typer.Option(help="bucket to autopsy")] = "temporal",
                 interventional: Annotated[int, typer.Option(
-                    help="failures to also localize by oracle substitution")] = 40) -> None:
+                    help="failures to also localize by oracle substitution")] = 40,
+                write: Annotated[bool, typer.Option(
+                    help="record the budget to store.budget for the API and UI")] = True,
+                generate: Annotated[bool, typer.Option(
+                    help="also localize generation and grounding (slow: needs the model)")]
+                = False,
+                limit: Annotated[int, typer.Option(
+                    help="score only every Nth item; 0 scores all")] = 0) -> None:
     """Localize every failure to a stage and print the failure budget."""
     cfg = Config.load(config)
     with Store(cfg.store_path) as store:
@@ -290,8 +309,22 @@ def autopsy_run(config: ConfigOpt = None,
         if not items:
             console.print(f"[red]no items in bucket {bucket}[/red]")
             raise typer.Exit(1)
+        if limit:
+            # A deterministic stride, not a head slice: the buckets are sorted by section id,
+            # so the first N items would all come from part 300 and the sample would measure
+            # one part rather than the corpus.
+            stride = max(1, len(items) // limit)
+            items = items[::stride][:limit]
+            console.print(f"[dim]sampling {len(items)} items on a stride of {stride}[/dim]")
+
+        gen = None
+        if generate:
+            from .generate.model import Generator
+
+            gen = Generator()
         budget = autopsy.run(items, _retriever(cfg, store),
-                             interventional_sample=interventional)
+                             interventional_sample=interventional,
+                             generator=gen, context_k=cfg.retrieve.context_k)
 
         console.print(f"[bold]{budget.n}[/bold] items in bucket [bold]{bucket}[/bold], "
                       f"[bold]{budget.failures}[/bold] failures "
@@ -314,6 +347,14 @@ def autopsy_run(config: ConfigOpt = None,
             console.print(rep)
             console.print("[dim]oracle substitution shows a repair works, not that the "
                           "stage was the unique cause[/dim]")
+
+        if write:
+            path = cfg.budget_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(budget.to_dict(bucket=bucket, config_hash=cfg.hash), indent=2),
+                encoding="utf-8")
+            console.print(f"recorded -> [bold]{path}[/bold]")
 
 
 if __name__ == "__main__":

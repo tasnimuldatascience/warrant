@@ -115,3 +115,92 @@ def test_budget_reports_stages_in_pipeline_order():
     b = Budget(n=10, failures=4)
     b.observational.update({"truncation": 1, "retrieval": 2, "ingestion": 1})
     assert [s for s, _, _ in b.rows()] == ["ingestion", "retrieval", "truncation"]
+
+
+# -- generation and grounding ----------------------------------------------------
+
+
+def answer_with(claims, *, abstained=False, parse_failed=False):
+    from warrant.generate.answer import Answer, Claim
+    from warrant.verify.align import Span
+
+    built = [
+        Claim(text=t, evidence=list(ev),
+              spans={v: (Span(0, 5, 1.0) if grounded else None) for v in ev})
+        for t, ev, grounded in claims
+    ]
+    return Answer(question="q", as_of="2021-01-01", scope="government-wide",
+                  claims=built, answer_found=not abstained, cited={},
+                  parse_failed=parse_failed)
+
+
+def reached_context(**kw) -> Trace:
+    """A trace in which the evidence made it all the way to the context."""
+    return trace(lexical=["e@1"], fused=["e@1"], reranked=["e@1"], final=["e@1"], **kw)
+
+
+def test_retrieval_only_run_stops_at_truncation(store: Store):
+    """Scoring retrieval without a model is the common case, and it must not invent a
+    generation verdict it has no evidence for."""
+    assert localize(item(), reached_context(), store) == "none"
+
+
+def test_abstention_despite_good_evidence_is_generation(store: Store):
+    """The right paragraph was in the prompt and the model declined to use it."""
+    got = observational(item(), reached_context(), store, admitted_temporal=ALL,
+                        admitted_scope=ALL, rerank_top_k=3,
+                        answer=answer_with([], abstained=True))
+    assert got[0] == "generation"
+    assert got[1]["reason"] == "abstained"
+
+
+def test_unparseable_response_is_generation_not_grounding(store: Store):
+    got = observational(item(), reached_context(), store, admitted_temporal=ALL,
+                        admitted_scope=ALL, rerank_top_k=3,
+                        answer=answer_with([], abstained=True, parse_failed=True))
+    assert got[0] == "generation"
+    assert got[1]["reason"] == "parse_failed"
+
+
+def test_citing_the_wrong_chunk_is_generation(store: Store):
+    """Fluent prose written from something other than the sufficient evidence is still a
+    generation failure."""
+    got = observational(item(), reached_context(), store, admitted_temporal=ALL,
+                        admitted_scope=ALL, rerank_top_k=3,
+                        answer=answer_with([("something else", ["x@1"], True)]))
+    assert got[0] == "generation"
+
+
+def test_citing_the_right_chunk_with_no_locatable_span_is_grounding(store: Store):
+    """It cited correctly and the aligner could not find support inside the text. That is
+    the distinction grounding exists to draw -- a right citation is not the same as a
+    supported claim."""
+    got = observational(item(), reached_context(), store, admitted_temporal=ALL,
+                        admitted_scope=ALL, rerank_top_k=3,
+                        answer=answer_with([("unsupported", ["e@1"], False)]))
+    assert got[0] == "grounding"
+
+
+def test_correct_and_grounded_answer_blames_nothing(store: Store):
+    got = observational(item(), reached_context(), store, admitted_temporal=ALL,
+                        admitted_scope=ALL, rerank_top_k=3,
+                        answer=answer_with([("supported", ["e@1"], True)]))
+    assert got[0] == "none"
+
+
+def test_retrieval_failure_outranks_a_generation_failure(store: Store):
+    """First-loss ordering: if the evidence never reached the context, the model was never
+    given a chance and blaming it would be the bias this module exists to avoid."""
+    tr = trace(lexical=["x@1"], fused=["x@1"], final=["x@1"])
+    got = observational(item(), tr, store, admitted_temporal=ALL, admitted_scope=ALL,
+                        rerank_top_k=3, answer=answer_with([], abstained=True))
+    assert got[0] == "retrieval"
+
+
+def test_ladder_covers_every_stage_the_pipeline_has():
+    """A stage that exists in the pipeline and not in the ladder makes the instrument blind
+    to it. Generation and grounding shipped before this list caught up once already."""
+    from warrant.autopsy.localize import LADDER
+
+    assert LADDER[-2:] == ["generation", "grounding"]
+    assert "truncation" in LADDER

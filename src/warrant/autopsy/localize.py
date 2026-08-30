@@ -26,12 +26,21 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from ..eval.bench import BenchItem
+from ..generate.answer import Answer
 from ..index.store import Store
 from ..retrieve.hybrid import Retriever, Trace
 
 #: Observational ladder, in pipeline order. The first stage that loses every sufficient
 #: evidence set is the one blamed.
-LADDER = ["ingestion", "applicability", "temporal", "retrieval", "fusion", "rerank"]
+#:
+#: ``generation`` and ``grounding`` are only reachable when an answer is supplied. Retrieval
+#: can be scored without a model and usually is, so a retrieval-only run stops at
+#: ``truncation`` and reports ``none`` for every item whose evidence reached the context. The
+#: two stages existed in the pipeline before they existed here, which meant the instrument
+#: was blind to the newest thing it was pointed at -- for a project whose whole claim is
+#: "we tell you which stage made it wrong", the stage list has to keep up with the stages.
+LADDER = ["ingestion", "applicability", "temporal", "retrieval", "fusion", "rerank",
+          "truncation", "generation", "grounding"]
 
 #: Depth used by the "would more candidates have found it?" intervention. Large on purpose:
 #: the question is whether the evidence is reachable at all, not whether it is reachable
@@ -57,8 +66,14 @@ def _survives(item: BenchItem, available: set[str]) -> bool:
 
 def observational(item: BenchItem, trace: Trace, store: Store, *,
                   admitted_temporal: set[str], admitted_scope: set[str],
-                  rerank_top_k: int) -> tuple[str, dict[str, str]]:
-    """The first stage at which no sufficient evidence set survives."""
+                  rerank_top_k: int, answer: Answer | None = None
+                  ) -> tuple[str, dict[str, str]]:
+    """The first stage at which no sufficient evidence set survives.
+
+    ``answer`` is optional: retrieval is scored without a model far more often than with
+    one, and a retrieval-only run legitimately stops at ``truncation``. Supplying it extends
+    the same ladder through ``generation`` and ``grounding``.
+    """
     detail: dict[str, str] = {}
 
     in_corpus = {
@@ -100,6 +115,30 @@ def observational(item: BenchItem, trace: Trace, store: Store, *,
         if trace.reranked and _survives(item, set(trace.fused[:k])):
             return "rerank", detail
         return "truncation", detail
+
+    # Everything above is retrieval. Past here the evidence reached the context, so any
+    # remaining failure belongs to the model or to grounding -- and is only visible when an
+    # answer was actually generated.
+    if answer is None:
+        return "none", detail
+
+    if answer.abstained:
+        detail["reason"] = "parse_failed" if answer.parse_failed else "abstained"
+        return "generation", detail
+
+    sufficient = set(item.all_evidence)
+    cited = {vid for claim in answer.claims for vid in claim.evidence}
+    if not (cited & sufficient):
+        # The right paragraph was in the prompt and the model wrote its answer from
+        # something else. That is a generation failure however fluent the prose is.
+        detail["cited"] = ",".join(sorted(cited)) or "nothing"
+        return "generation", detail
+
+    if not any(claim.grounded for claim in answer.claims
+               if set(claim.evidence) & sufficient):
+        # It cited the right paragraph and no supporting span can be located inside it.
+        detail["cited"] = ",".join(sorted(cited & sufficient))
+        return "grounding", detail
 
     return "none", detail
 
@@ -154,16 +193,42 @@ class Budget:
 
     def rows(self) -> list[tuple[str, int, str]]:
         out = []
-        for stage in [*LADDER, "truncation"]:
+        for stage in LADDER:
             count = self.observational.get(stage, 0)
             if count:
                 share = count / self.failures * 100 if self.failures else 0.0
                 out.append((stage, count, f"{share:.1f}%"))
         return out
 
+    def to_dict(self, *, bucket: str, config_hash: str) -> dict:
+        """The budget as data, for the API and the UI to read back.
+
+        Recorded, never recomputed on demand. Recomputing costs minutes, and worse, it would
+        let a dashboard drift from the numbers in ``results/`` that the README quotes -- two
+        sources of truth for the same claim is how a published figure quietly stops being
+        reproducible.
+        """
+        return {
+            "bucket": bucket,
+            "config_hash": config_hash,
+            "items": self.n,
+            "failures": self.failures,
+            "success_rate": round(self.success_rate, 4),
+            "observational": [
+                {"stage": stage, "failures": count, "share": share}
+                for stage, count, share in self.rows()
+            ],
+            "interventional": [
+                {"repair": name, "implicated": count}
+                for name, count in self.repairs.most_common()
+            ],
+            "stages": list(LADDER),
+        }
+
 
 def run(items: list[BenchItem], retriever: Retriever, *,
-        interventional_sample: int = 0) -> Budget:
+        interventional_sample: int = 0, generator: object | None = None,
+        context_k: int = 16) -> Budget:
     """Retrieve every item, then localize each failure.
 
     ``interventional_sample`` bounds the expensive pass. It is a deterministic stride over
@@ -186,10 +251,19 @@ def run(items: list[BenchItem], retriever: Retriever, *,
                                          valid_date=item.as_of,
                                          temporal=retriever.temporal)
 
+        answer = None
+        if generator is not None:
+            from ..generate.answer import excerpts_for
+
+            answer = generator.answer(
+                item.query, excerpts_for(store, trace, limit=context_k),
+                as_of=item.as_of, scope=item.scope.describe())
+
         stage, detail = observational(item, trace, store,
                                       admitted_temporal=admitted_temporal,
                                       admitted_scope=admitted_scope,
-                                      rerank_top_k=retriever.rerank_top_k)
+                                      rerank_top_k=retriever.rerank_top_k,
+                                      answer=answer)
         budget.autopsies.append(Autopsy(item.id, stage, [], detail))
         if stage != "none":
             budget.failures += 1

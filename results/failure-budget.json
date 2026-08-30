@@ -1,0 +1,44 @@
+{
+  "bucket": "temporal",
+  "config_hash": "63fcbc7607bc",
+  "items": 721,
+  "failures": 170,
+  "success_rate": 0.7642,
+  "observational": [
+    {
+      "stage": "retrieval",
+      "failures": 25,
+      "share": "14.7%"
+    },
+    {
+      "stage": "fusion",
+      "failures": 40,
+      "share": "23.5%"
+    },
+    {
+      "stage": "rerank",
+      "failures": 64,
+      "share": "37.6%"
+    },
+    {
+      "stage": "truncation",
+      "failures": 41,
+      "share": "24.1%"
+    }
+  ],
+  "interventional": [
+    {
+      "repair": "ranking",
+      "implicated": 40
+    }
+  ],
+  "stages": [
+    "ingestion",
+    "applicability",
+    "temporal",
+    "retrieval",
+    "fusion",
+    "rerank",
+    "truncation"
+  ]
+}

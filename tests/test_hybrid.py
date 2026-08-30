@@ -10,7 +10,12 @@ from __future__ import annotations
 import pytest
 
 from warrant.index.store import Chunk, Store
-from warrant.retrieve.hybrid import Retriever, fts_query, reciprocal_rank_fusion
+from warrant.retrieve.hybrid import (
+    MAX_QUERY_TOKENS,
+    Retriever,
+    fts_query,
+    reciprocal_rank_fusion,
+)
 from warrant.retrieve.scope import GOVERNMENT_WIDE, Scope
 
 T0 = "2026-01-01T00:00:00+00:00"
@@ -138,13 +143,18 @@ def test_trace_records_every_stage_that_ran(store: Store):
 
 def test_trace_reports_the_dense_stage_when_an_index_is_present(store: Store):
     class StubIndex:
+        """The index owns its encoder, so a stub needs no model and the suite stays
+        offline. That is the point of `DenseIndex.encode` existing at all."""
+
         model = "stub"
+
+        def encode(self, text):
+            return text
 
         def search(self, vector, *, allowed, limit):
             return [(i, 1.0) for i in sorted(allowed)[:limit]]
 
     r = make(store, dense_index=StubIndex())
-    r._query_cache["annual leave"] = object()   # skip the encoder entirely
     trace = r.retrieve("annual leave", as_of="2021-01-01")
     assert trace.dense
     assert "dense" in trace.stages_run
@@ -153,3 +163,27 @@ def test_trace_reports_the_dense_stage_when_an_index_is_present(store: Store):
 def test_final_is_capped_at_final_k(store: Store):
     trace = make(store).retrieve("leave wage performance schedule", as_of="2021-01-01")
     assert len(trace.final) <= 5
+
+
+# -- query cost ------------------------------------------------------------------
+
+
+def test_repeated_tokens_are_deduplicated():
+    """A bag-of-words OR gains nothing from a repeat and loses a great deal: FTS5 merges
+    the same postings list against itself once per occurrence. Measured on the real corpus,
+    one token repeated 2,600 times cost 29 seconds against 16 ms for a normal query --
+    ~1,800x amplification from a 15.6 KB URL that fits inside the HTTP header limit."""
+    q = fts_query("leave " * 2600)
+    assert q.count('"') // 2 == 1
+
+
+def test_token_count_is_capped():
+    q = fts_query(" ".join(f"tok{i}" for i in range(5000)))
+    assert q.count('"') // 2 == MAX_QUERY_TOKENS
+
+
+def test_deduplication_preserves_order_and_content():
+    """The cap must not silently reorder a query -- earlier terms are the ones a user
+    actually typed first, and truncation should drop the tail, not a random subset."""
+    assert fts_query("annual leave annual restored leave") == (
+        '"annual" OR "leave" OR "restored"')

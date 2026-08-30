@@ -138,7 +138,7 @@ def create_app(cfg: Config | None = None, *, generate: bool = True) -> FastAPI:
     # -- ask --------------------------------------------------------------------
 
     @app.get("/api/ask")
-    def ask(q: str = Query(min_length=2),
+    def ask(q: str = Query(min_length=2, max_length=512),
             as_of: str = Query(pattern=r"^\d{4}-\d{2}-\d{2}$"),
             pay_system: str | None = None,
             service: str | None = None,

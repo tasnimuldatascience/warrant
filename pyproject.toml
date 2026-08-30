@@ -32,7 +32,10 @@ dependencies = [
 # bitemporal store, lexical retrieval, amendment benchmark, retrieval autopsy) is fully
 # testable without it.
 neural = ["torch>=2.4", "sentence-transformers>=3.0", "transformers>=4.44"]
-generate = ["llama-cpp-python>=0.3"]
+# The generator runs on transformers, not llama.cpp. This extra used to install
+# llama-cpp-python, so `pip install warrant[generate]` produced an environment in
+# which generation still failed on a missing torch.
+generate = ["torch>=2.4", "transformers>=4.44", "accelerate>=0.30"]
 serve = ["fastapi>=0.115", "uvicorn[standard]>=0.30"]
 dev = ["pytest>=8.2", "pytest-cov>=5.0", "ruff>=0.6"]
 all = ["warrant[neural,generate,serve,dev]"]

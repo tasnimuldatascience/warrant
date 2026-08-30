@@ -74,15 +74,18 @@ def _similarity(a: str, b: str) -> tuple[float, int]:
     return sm.ratio(), changed
 
 
-def classify_pair(before: str, after: str) -> tuple[Change, float, int]:
+def classify_pair(before: str, after: str, *,
+                  wholesale_threshold: float = WHOLESALE_THRESHOLD,
+                  min_changed_tokens: int = MIN_CHANGED_TOKENS
+                  ) -> tuple[Change, float, int]:
     if before == after:
         return Change.EDITORIAL, 1.0, 0
     if _loose(before) == _loose(after):
         return Change.EDITORIAL, 1.0, 0
     ratio, changed = _similarity(before, after)
-    if changed < MIN_CHANGED_TOKENS:
+    if changed < min_changed_tokens:
         return Change.EDITORIAL, ratio, changed
-    if ratio < WHOLESALE_THRESHOLD:
+    if ratio < wholesale_threshold:
         return Change.WHOLESALE, ratio, changed
     return Change.SUBSTANTIVE, ratio, changed
 

@@ -33,6 +33,17 @@ from pathlib import Path
 #: where "9999-12-31" sorts correctly but compares wrong against a NULL from another path.
 OPEN = None
 
+
+class SchemaMismatch(RuntimeError):
+    """The store on disk was written by a different schema version than this build."""
+
+#: Bump whenever the schema changes in a way an existing store cannot satisfy. Every DDL
+#: statement below is IF NOT EXISTS, so an old store connects without error and then fails
+#: much later inside a query with "no such column", naming neither the cause nor the cure.
+#: Worse are the silent drifts -- an edited FTS tokenizer or trigger body is simply never
+#: applied to an existing store, and the only symptom is a few points of retrieval quality.
+SCHEMA_VERSION = 1
+
 SCHEMA = """
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -157,7 +168,18 @@ class Store:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.path) if not self._memory else ":memory:")
         conn.row_factory = sqlite3.Row
+        existing = conn.execute("PRAGMA user_version").fetchone()[0]
+        has_rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='chunk'"
+        ).fetchone() is not None
+        if has_rows and existing != SCHEMA_VERSION:
+            conn.close()
+            raise SchemaMismatch(
+                f"{self.path} was written by schema v{existing}, this build expects "
+                f"v{SCHEMA_VERSION}. Delete it and re-run `make build` "
+                f"(about 6 seconds from the cached snapshots).")
         conn.executescript(SCHEMA)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         return conn
 
     @property
@@ -213,14 +235,26 @@ class Store:
         return len(rows)
 
     def close_valid(self, section_id: str, valid_to: str) -> int:
-        """Mark the currently-in-force version of a section as superseded on ``valid_to``."""
+        """Mark the currently-in-force version of a section as superseded on ``valid_to``.
+
+        ``valid_from < :valid_to`` is load-bearing. Without it, closing a section at a date it
+        was also opened on produces a **zero-width interval**, and since ``as_of`` asks for
+        ``valid_from <= d AND valid_to > d``, no date can ever satisfy it: that version of the
+        law becomes permanently unretrievable. Re-running an ingest into a non-empty store did
+        exactly that -- it deleted in-force law from the answerable range while duplicating
+        the superseded law beside it, with no error.
+        """
         with self.tx() as db:
             cur = db.execute(
                 "UPDATE chunk SET valid_to = ? "
-                "WHERE section_id = ? AND valid_to IS NULL AND system_to IS NULL",
-                (valid_to, section_id),
+                "WHERE section_id = ? AND valid_to IS NULL AND system_to IS NULL "
+                "AND valid_from < ?",
+                (valid_to, section_id, valid_to),
             )
         return cur.rowcount
+
+    def is_empty(self) -> bool:
+        return self.count() == 0
 
     def retract(self, version_id: str, *, system_to: str | None = None) -> int:
         """Stop believing one valid-time version, without deleting it.

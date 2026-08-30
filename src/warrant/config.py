@@ -29,23 +29,15 @@ class StoreConfig(BaseModel):
     path: str = "data/warrant.sqlite3"
     dense_path: str = "data/dense"
     human_benchmark: str = "benchmarks/human.yaml"
-
-
-class ChunkConfig(BaseModel):
-    unit: str = "section"
-    citation_unit: str = "paragraph"
-    parent_expansion: bool = True
-    split_tables: bool = False
+    #: Where `warrant autopsy run --json` writes the budget the API and UI read. Recorded
+    #: rather than recomputed per request: recomputing takes minutes, and worse, it would let
+    #: the dashboard drift from the numbers in results/ that the README quotes.
+    budget: str = "results/failure-budget.json"
 
 
 class DiffConfig(BaseModel):
     wholesale_threshold: float = 0.50
     min_changed_tokens: int = 3
-
-
-class LexicalConfig(BaseModel):
-    k1: float = 1.2
-    b: float = 0.75
 
 
 class DenseConfig(BaseModel):
@@ -67,7 +59,6 @@ class FusionConfig(BaseModel):
 
 
 class IndexConfig(BaseModel):
-    lexical: LexicalConfig = Field(default_factory=LexicalConfig)
     dense: DenseConfig = Field(default_factory=DenseConfig)
     rerank: RerankConfig = Field(default_factory=RerankConfig)
     fusion: FusionConfig = Field(default_factory=FusionConfig)
@@ -78,6 +69,15 @@ class RetrieveConfig(BaseModel):
     candidates_dense: int = 100
     rerank_top_k: int = 30
     final_k: int = 8
+    #: Excerpts handed to the generator. Defaults to final_k rather than a second constant:
+    #: they were independently 16 and 8 for a while, so retrieval was widened on the
+    #: evidence of the failure budget and the generator kept seeing half of what the fix
+    #: delivered -- a tuning result silently thrown away one module downstream.
+    context_chunks: int | None = None
+
+    @property
+    def context_k(self) -> int:
+        return self.context_chunks if self.context_chunks is not None else self.final_k
 
 
 class EvalConfig(BaseModel):
@@ -88,7 +88,6 @@ class EvalConfig(BaseModel):
 class Config(BaseModel):
     corpus: CorpusConfig = Field(default_factory=CorpusConfig)
     store: StoreConfig = Field(default_factory=StoreConfig)
-    chunk: ChunkConfig = Field(default_factory=ChunkConfig)
     diff: DiffConfig = Field(default_factory=DiffConfig)
     index: IndexConfig = Field(default_factory=IndexConfig)
     retrieve: RetrieveConfig = Field(default_factory=RetrieveConfig)
@@ -122,7 +121,18 @@ class Config(BaseModel):
         return p if p.is_absolute() else REPO_ROOT / p
 
     @property
+    def budget_path(self) -> Path:
+        p = Path(self.store.budget)
+        return p if p.is_absolute() else REPO_ROOT / p
+
+    @property
     def hash(self) -> str:
-        """Stable short hash of every behaviour-affecting setting."""
+        """Stable short hash of every behaviour-affecting setting.
+
+        Only settings the code actually reads belong here. A field that is declared,
+        hashed, and never read asserts a difference that does not exist: editing it changes
+        the hash, changes no behaviour, and quietly tells a reader it is tunable when it is
+        not. Ten such fields were removed rather than documented.
+        """
         payload = self.model_dump_json(exclude={"eval"}).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()[:12]

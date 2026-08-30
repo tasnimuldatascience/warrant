@@ -20,21 +20,13 @@ store:
   path: "data/warrant.sqlite3"
   dense_path: "data/dense"
   human_benchmark: "benchmarks/human.yaml"
-
-chunk:
-  unit: "section"               # retrieval unit
-  citation_unit: "paragraph"    # what a citation points at
-  parent_expansion: true
-  split_tables: false           # tables are never split
+  budget: "results/failure-budget.json"
 
 diff:
   wholesale_threshold: 0.50     # similarity below this = section replaced, not amended
   min_changed_tokens: 3         # below this, treat as editorial noise
 
 index:
-  lexical:
-    k1: 1.2
-    b: 0.75
   dense:
     enabled: true               # set false to run the entire P0 path with no GPU
     model: "BAAI/bge-small-en-v1.5"
@@ -54,6 +46,9 @@ retrieve:
   # failures were evidence that had been found and then cut. See results/eval-002.
   rerank_top_k: 50
   final_k: 16
+  # Excerpts handed to the generator. null = final_k, so widening retrieval widens context
+  # instead of the two silently disagreeing.
+  context_chunks: null
 
 eval:
   buckets: ["temporal", "generated", "human"]

@@ -22,6 +22,7 @@ snapshot of Part 630 as of 2019-06-01 will never change. A rebuild should cost n
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,21 +72,35 @@ class ECFRClient:
         r.raise_for_status()
         return r.content
 
-    def _cached(self, url: str, name: str) -> bytes:
+    def _cached(self, url: str, name: str, *, negative_cache: bool = True) -> bytes:
+        """Fetch through the on-disk cache.
+
+        Writes are atomic. A non-atomic ``write_bytes`` leaves a truncated file if the
+        process dies mid-write -- a Ctrl-C during the ten-minute fetch, a closed lid, an OOM
+        -- and the cache only checks for existence, so that truncation is trusted forever.
+        The symptom is an XMLSyntaxError partway through a later build, naming no file.
+
+        ``negative_cache=False`` is for the index endpoints. A 404 there is usually eCFR's
+        issue date lagging the calendar, not a permanent absence, and persisting it would
+        silently drop the current text of every part once the date became real.
+        """
         path = self.cache_dir / name
         if path.exists():
             return path.read_bytes()
         missing = self.cache_dir / (name + ".404")
-        if missing.exists():
+        if negative_cache and missing.exists():
             raise SnapshotUnavailable(url)
         try:
             content = self._fetch(url)
         except SnapshotUnavailable:
             # Record the absence too. Re-probing a permanent 404 on every rebuild is a
             # slow way to be rude to someone else's server.
-            missing.write_bytes(b"")
+            if negative_cache:
+                missing.write_bytes(b"")
             raise
-        path.write_bytes(content)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_bytes(content)
+        os.replace(tmp, path)
         return content
 
     # -- corpus ------------------------------------------------------------------
