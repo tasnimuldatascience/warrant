@@ -27,6 +27,8 @@ class CorpusConfig(BaseModel):
 
 class StoreConfig(BaseModel):
     path: str = "data/warrant.sqlite3"
+    dense_path: str = "data/dense"
+    human_benchmark: str = "benchmarks/human.yaml"
 
 
 class ChunkConfig(BaseModel):
@@ -48,8 +50,15 @@ class LexicalConfig(BaseModel):
 
 class DenseConfig(BaseModel):
     enabled: bool = True
-    model: str = "BAAI/bge-m3"
-    batch_size: int = 16
+    # Small on purpose: 384 dimensions, ~130 MB. A reviewer without a GPU must be able to
+    # build this index, and at 13k chunks a larger encoder buys less than the reranker does.
+    model: str = "BAAI/bge-small-en-v1.5"
+    batch_size: int = 64
+
+
+class RerankConfig(BaseModel):
+    enabled: bool = True
+    model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 
 class FusionConfig(BaseModel):
@@ -60,6 +69,7 @@ class FusionConfig(BaseModel):
 class IndexConfig(BaseModel):
     lexical: LexicalConfig = Field(default_factory=LexicalConfig)
     dense: DenseConfig = Field(default_factory=DenseConfig)
+    rerank: RerankConfig = Field(default_factory=RerankConfig)
     fusion: FusionConfig = Field(default_factory=FusionConfig)
 
 
@@ -99,6 +109,16 @@ class Config(BaseModel):
     @property
     def store_path(self) -> Path:
         p = Path(self.store.path)
+        return p if p.is_absolute() else REPO_ROOT / p
+
+    @property
+    def dense_path(self) -> Path:
+        p = Path(self.store.dense_path)
+        return p if p.is_absolute() else REPO_ROOT / p
+
+    @property
+    def human_path(self) -> Path:
+        p = Path(self.store.human_benchmark)
         return p if p.is_absolute() else REPO_ROOT / p
 
     @property

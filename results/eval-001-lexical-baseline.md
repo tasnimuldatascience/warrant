@@ -1,5 +1,12 @@
 # Eval 001 — lexical baseline on the temporal bucket
 
+> **Superseded by [eval-002](eval-002-failure-budget.md). The sufficiency numbers below are
+> withdrawn.** They were scored against a benchmark whose evidence sets were not minimal: 41
+> of 252 items required more paragraphs than the pipeline returns, so they were unsatisfiable
+> by construction. The ablation conclusion — that the as-of predicate eliminates superseded
+> citations — survived and is reproduced in eval-002 on the corrected benchmark. Kept
+> unedited as a record of what was believed and why.
+
 **Date:** 2026-08-30
 **Config hash:** see `configs/default.yaml`; lexical only, no dense retrieval, no reranking.
 **Reproduce:** `make build && make eval`

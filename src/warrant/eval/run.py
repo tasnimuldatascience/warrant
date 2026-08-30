@@ -1,29 +1,29 @@
 """Scoring a retrieval configuration against a benchmark bucket.
 
-Two numbers, reported separately and never combined into one:
+Two numbers per bucket, reported separately and never combined:
 
 **Sufficiency** — did the retrieved set contain a complete minimal sufficient evidence set?
 Not "was the gold chunk retrieved": a question can be answerable from more than one set of
-paragraphs, and asking about a single gold chunk understates a system that found a different
-but equally valid route to the answer (ARCHITECTURE.md section 6).
+paragraphs, and grading against a single gold chunk understates a system that found a
+different but equally valid route (ARCHITECTURE.md section 6).
 
-**Distractor rate** — did the retrieved set contain the superseded or not-yet-in-force
-version of the same paragraph? This is the failure the temporal bucket exists to detect, and
-it is worth reporting even when sufficiency is satisfied, because an answer that cites both
-the current and the repealed rule is wrong in the way that matters most here.
+**Distractor rate** — did the retrieved set contain the superseded version, or a part that
+does not govern the asker? This is worth reporting even when sufficiency is satisfied,
+because an answer citing both the current and the repealed rule is wrong in the way that
+matters most here.
 
-Confidence intervals are bootstrap over items. A bucket of a few hundred items cannot
-distinguish configurations that differ by two or three points, and pretending otherwise is
-how ablation tables come to report noise.
+Intervals are a seeded percentile bootstrap over items. A bucket of a few hundred items
+cannot separate configurations differing by a few points, and reporting a winner anyway is
+how ablation tables come to publish noise.
 """
 
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from ..index.store import Store
-from .bench import TemporalItem
+from ..retrieve.hybrid import Retriever
+from .bench import BenchItem
 
 
 @dataclass(frozen=True)
@@ -46,16 +46,21 @@ class BucketResult:
     sufficiency_ci: tuple[float, float]
     distractor_rate: float
     distractor_rate_ci: tuple[float, float]
-    results: list[ItemResult]
+    results: list[ItemResult] = field(default_factory=list)
 
-    def row(self) -> list[str]:
-        return [
-            self.bucket, str(self.n),
-            f"{self.sufficiency * 100:.1f}%",
-            f"{self.sufficiency_ci[0] * 100:.1f}-{self.sufficiency_ci[1] * 100:.1f}",
-            f"{self.distractor_rate * 100:.1f}%",
-            f"{self.distractor_rate_ci[0] * 100:.1f}-{self.distractor_rate_ci[1] * 100:.1f}",
-        ]
+    @property
+    def measures_absence(self) -> bool:
+        """Exclusion buckets have nothing to retrieve; only the distractor rate is meaningful."""
+        return self.bucket.endswith("exclusion")
+
+    def row(self, label: str = "") -> list[str]:
+        suff = "n/a" if self.measures_absence else f"{self.sufficiency * 100:.1f}%"
+        suff_ci = "" if self.measures_absence else (
+            f"{self.sufficiency_ci[0] * 100:.1f}-{self.sufficiency_ci[1] * 100:.1f}")
+        return [label or self.bucket, str(self.n), suff, suff_ci,
+                f"{self.distractor_rate * 100:.1f}%",
+                f"{self.distractor_rate_ci[0] * 100:.1f}-"
+                f"{self.distractor_rate_ci[1] * 100:.1f}"]
 
 
 def bootstrap_ci(flags: list[bool], *, samples: int = 1000,
@@ -65,50 +70,27 @@ def bootstrap_ci(flags: list[bool], *, samples: int = 1000,
         return (0.0, 0.0)
     rng = random.Random(seed)
     n = len(flags)
-    means = []
-    for _ in range(samples):
-        means.append(sum(flags[rng.randrange(n)] for _ in range(n)) / n)
-    means.sort()
-    lo = means[int(0.025 * samples)]
-    hi = means[min(int(0.975 * samples), samples - 1)]
-    return (lo, hi)
+    means = sorted(sum(flags[rng.randrange(n)] for _ in range(n)) / n
+                   for _ in range(samples))
+    return (means[int(0.025 * samples)], means[min(int(0.975 * samples), samples - 1)])
 
 
-def retrieve(store: Store, item: TemporalItem, *, k: int,
-             temporal: bool = True) -> list[str]:
-    """Version ids retrieved for one item, best first."""
-    rows = store.search(fts_query(item.query), valid_date=item.as_of,
-                        limit=k, temporal=temporal)
-    return [r["version_id"] for r in rows]
-
-
-def fts_query(text: str) -> str:
-    """Escape a natural-language query for FTS5.
-
-    FTS5 treats bare punctuation as syntax, so a heading containing a colon or a hyphen is a
-    parse error rather than a query. Quoting every token keeps the query literal, which is
-    what a lexical baseline should be.
-    """
-    tokens = [t for t in ("".join(c if c.isalnum() else " " for c in text)).split() if t]
-    return " OR ".join(f'"{t}"' for t in tokens) or '""'
-
-
-def score(store: Store, items: list[TemporalItem], *, k: int, bucket: str = "temporal",
-          temporal: bool = True, samples: int = 1000) -> BucketResult:
+def score(retriever: Retriever, items: list[BenchItem], *, bucket: str = "",
+          samples: int = 1000) -> BucketResult:
     results: list[ItemResult] = []
     for item in items:
-        got = retrieve(store, item, k=k, temporal=temporal)
+        trace = retriever.retrieve(item.query, as_of=item.as_of, scope=item.scope)
         results.append(ItemResult(
             item_id=item.id,
-            satisfied=item.is_satisfied_by(got),
-            distractors_hit=item.leaked(got),
-            retrieved=got,
+            satisfied=item.is_satisfied_by(trace.final),
+            distractors_hit=item.leaked(trace.final),
+            retrieved=trace.final,
         ))
     suff = [r.satisfied for r in results]
     leak = [r.leaked for r in results]
     n = len(results) or 1
     return BucketResult(
-        bucket=bucket,
+        bucket=bucket or (items[0].bucket if items else "?"),
         n=len(results),
         sufficiency=sum(suff) / n,
         sufficiency_ci=bootstrap_ci(suff, samples=samples),

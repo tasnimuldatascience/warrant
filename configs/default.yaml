@@ -18,6 +18,8 @@ corpus:
 
 store:
   path: "data/warrant.sqlite3"
+  dense_path: "data/dense"
+  human_benchmark: "benchmarks/human.yaml"
 
 chunk:
   unit: "section"               # retrieval unit
@@ -35,8 +37,11 @@ index:
     b: 0.75
   dense:
     enabled: true               # set false to run the entire P0 path with no GPU
-    model: "BAAI/bge-m3"
-    batch_size: 16
+    model: "BAAI/bge-small-en-v1.5"
+    batch_size: 64
+  rerank:
+    enabled: true               # set false to measure the pipeline without a cross-encoder
+    model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
   fusion:
     method: "rrf"
     k: 60
@@ -44,8 +49,11 @@ index:
 retrieve:
   candidates_lexical: 100
   candidates_dense: 100
-  rerank_top_k: 30
-  final_k: 8
+  # Widened from 30/8 on the evidence of the failure budget, not by taste. At 30/8 the
+  # budget put 36.9% of failures on fusion and 33.1% on truncation -- two thirds of all
+  # failures were evidence that had been found and then cut. See results/eval-002.
+  rerank_top_k: 50
+  final_k: 16
 
 eval:
   buckets: ["temporal", "generated", "human"]

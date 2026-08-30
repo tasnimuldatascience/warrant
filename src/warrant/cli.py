@@ -4,7 +4,9 @@
     warrant corpus fetch   -c CONFIG    download eCFR point-in-time snapshots (cached)
     warrant corpus build   -c CONFIG    ingest cached snapshots into the bitemporal store
     warrant corpus diff    -c CONFIG    classify what changed between consecutive snapshots
-    warrant eval run       -c CONFIG    score the temporal bucket, filter on and off
+    warrant index build    -c CONFIG    embed the store into the dense index
+    warrant eval run       -c CONFIG    score every bucket, with ablations
+    warrant autopsy run    -c CONFIG    localize failures; print the failure budget
 
 Commands appear here only once the code behind them exists. A CLI that advertises a
 subcommand which raises NotImplementedError is worse than one that stays quiet about it.
@@ -21,21 +23,29 @@ from lxml import etree
 from rich.console import Console
 from rich.table import Table
 
+from .autopsy import localize as autopsy
 from .config import Config
 from .corpus.apparatus import text_of
 from .corpus.build import build_part
 from .corpus.diff import Change, diff_snapshots
 from .corpus.ecfr import ECFRClient
 from .corpus.parse import parse_sections
-from .eval.bench import mine
+from .eval.bench import mine_all
 from .eval.run import score
 from .index.store import Store
+from .retrieve.dense import DenseIndex
+from .retrieve.dense import build as build_dense
+from .retrieve.hybrid import Retriever
 
 app = typer.Typer(add_completion=False, help=__doc__, no_args_is_help=True)
 corpus_app = typer.Typer(help="Corpus construction.", no_args_is_help=True)
+index_app = typer.Typer(help="Index construction.", no_args_is_help=True)
 eval_app = typer.Typer(help="Evaluation.", no_args_is_help=True)
+autopsy_app = typer.Typer(help="Failure localization.", no_args_is_help=True)
 app.add_typer(corpus_app, name="corpus")
+app.add_typer(index_app, name="index")
 app.add_typer(eval_app, name="eval")
+app.add_typer(autopsy_app, name="autopsy")
 
 console = Console()
 
@@ -192,36 +202,118 @@ def corpus_diff(config: ConfigOpt = None,
                   f"{totals[Change.APPARATUS_ONLY.value]}[/bold]")
 
 
+def _retriever(cfg: Config, store: Store, *, dense: bool = True, rerank: bool = True,
+               temporal: bool = True) -> Retriever:
+    index = None
+    if dense and cfg.index.dense.enabled and DenseIndex.exists(cfg.dense_path):
+        index = DenseIndex.load(cfg.dense_path)
+    reranker = None
+    if rerank and cfg.index.rerank.enabled:
+        from sentence_transformers import CrossEncoder
+
+        reranker = CrossEncoder(cfg.index.rerank.model)
+    return Retriever(
+        store=store, dense_index=index, reranker=reranker,
+        candidates_lexical=cfg.retrieve.candidates_lexical,
+        candidates_dense=cfg.retrieve.candidates_dense,
+        rerank_top_k=cfg.retrieve.rerank_top_k, final_k=cfg.retrieve.final_k,
+        temporal=temporal, parts_universe=cfg.corpus.parts,
+    )
+
+
+@index_app.command("build")
+def index_build(config: ConfigOpt = None) -> None:
+    """Embed every believed chunk into the dense index."""
+    cfg = Config.load(config)
+    with Store(cfg.store_path) as store:
+        idx = build_dense(store, model_name=cfg.index.dense.model, config_hash=cfg.hash,
+                          batch_size=cfg.index.dense.batch_size, progress=True)
+        idx.save(cfg.dense_path)
+    console.print(f"[bold]{idx.ids.size}[/bold] vectors, dim {idx.vectors.shape[1]}, "
+                  f"model {idx.model} -> {cfg.dense_path}")
+
+
+def _buckets(cfg: Config, store: Store) -> tuple[dict[str, list], str]:
+    horizon = _client(cfg).latest_issue_date(cfg.corpus.title)
+    return mine_all(store, horizon=horizon, human_path=cfg.human_path), horizon
+
+
 @eval_app.command("run")
 def eval_run(config: ConfigOpt = None,
-             depths: Annotated[str, typer.Option(help="comma-separated candidate depths")]
-             = "8,20,50,100,300,1000") -> None:
-    """Score the temporal bucket, with the as-of filter on and off.
+             ablate: Annotated[bool, typer.Option(help="also run with predicates off")]
+             = True) -> None:
+    """Score every bucket, and ablate the as-of predicate.
 
-    The ablation is the point. Reporting that the filter works is an assertion; reporting
-    what happens without it is a measurement.
+    The ablation is the point. That the filter works is an assertion; what happens without
+    it is a measurement.
     """
     cfg = Config.load(config)
-    horizon = _client(cfg).latest_issue_date(cfg.corpus.title)
     with Store(cfg.store_path) as store:
-        items = mine(store, horizon=horizon)
-        console.print(f"[bold]{len(items)}[/bold] temporal items over "
-                      f"{len({i.section_id for i in items})} sections, horizon {horizon}")
+        buckets, horizon = _buckets(cfg, store)
+        console.print(f"horizon {horizon}; " + ", ".join(
+            f"{k} {len(v)}" for k, v in sorted(buckets.items())))
 
-        table = Table(title="temporal bucket", header_style="bold")
-        for col in ("config", "k", "n", "sufficiency", "95% CI", "distractor", "95% CI"):
-            table.add_column(col, justify="right" if col != "config" else "left")
-        for label, temporal in (("as-of ON", True), ("as-of OFF", False)):
-            for k in [int(d) for d in depths.split(",")]:
-                r = score(store, items, k=k, temporal=temporal,
-                          samples=cfg.eval.bootstrap_samples)
-                table.add_row(label, str(k), str(r.n),
-                              f"{r.sufficiency * 100:.1f}%",
-                              f"{r.sufficiency_ci[0] * 100:.1f}-{r.sufficiency_ci[1] * 100:.1f}",
-                              f"{r.distractor_rate * 100:.1f}%",
-                              f"{r.distractor_rate_ci[0] * 100:.1f}-"
-                              f"{r.distractor_rate_ci[1] * 100:.1f}")
+        table = Table(title="benchmark buckets", header_style="bold")
+        for col in ("bucket", "n", "sufficiency", "95% CI", "distractor", "95% CI"):
+            table.add_column(col, justify="left" if col == "bucket" else "right")
+        full = _retriever(cfg, store)
+        for _name, items in sorted(buckets.items()):
+            table.add_row(*score(full, items, samples=cfg.eval.bootstrap_samples).row())
+        if ablate:
+            table.add_section()
+            no_time = _retriever(cfg, store, temporal=False)
+            for name in ("temporal",):
+                if name in buckets:
+                    table.add_row(*score(no_time, buckets[name],
+                                         samples=cfg.eval.bootstrap_samples)
+                                  .row(label=f"{name} (as-of off)"))
+            flat = _retriever(cfg, store)
+            flat.parts_universe = []          # applicability predicate disabled
+            for name in ("scope", "scope-exclusion"):
+                if name in buckets:
+                    table.add_row(*score(flat, buckets[name],
+                                         samples=cfg.eval.bootstrap_samples)
+                                  .row(label=f"{name} (scope off)"))
         console.print(table)
+
+
+@autopsy_app.command("run")
+def autopsy_run(config: ConfigOpt = None,
+                bucket: Annotated[str, typer.Option(help="bucket to autopsy")] = "temporal",
+                interventional: Annotated[int, typer.Option(
+                    help="failures to also localize by oracle substitution")] = 40) -> None:
+    """Localize every failure to a stage and print the failure budget."""
+    cfg = Config.load(config)
+    with Store(cfg.store_path) as store:
+        buckets, _ = _buckets(cfg, store)
+        items = buckets.get(bucket, [])
+        if not items:
+            console.print(f"[red]no items in bucket {bucket}[/red]")
+            raise typer.Exit(1)
+        budget = autopsy.run(items, _retriever(cfg, store),
+                             interventional_sample=interventional)
+
+        console.print(f"[bold]{budget.n}[/bold] items in bucket [bold]{bucket}[/bold], "
+                      f"[bold]{budget.failures}[/bold] failures "
+                      f"({budget.success_rate * 100:.1f}% satisfied)")
+        table = Table(title="observational failure budget (first loss)",
+                      header_style="bold")
+        for col, just in (("stage", "left"), ("failures", "right"), ("share", "right")):
+            table.add_column(col, justify=just)
+        for stage, count, share in budget.rows():
+            table.add_row(stage, str(count), share)
+        console.print(table)
+
+        if budget.repairs:
+            rep = Table(title="interventional localization (multi-label; does not sum to N)",
+                        header_style="bold")
+            rep.add_column("repair", justify="left")
+            rep.add_column("implicated", justify="right")
+            for name, count in budget.repairs.most_common():
+                rep.add_row(name, str(count))
+            console.print(rep)
+            console.print("[dim]oracle substitution shows a repair works, not that the "
+                          "stage was the unique cause[/dim]")
 
 
 if __name__ == "__main__":

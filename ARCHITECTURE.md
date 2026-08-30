@@ -229,9 +229,18 @@ Three buckets, **reported separately and never averaged into one number**:
 
 | Bucket | Source | Measures |
 |---|---|---|
-| Temporal | mined from amendment diffs; ground truth from the diff itself | temporal and applicability correctness |
-| Generated | questions generated from chunks, audited on a stratified sample | broad retrieval coverage |
-| Human | hand-written | realistic query distribution |
+| Temporal | mined from real amendments; ground truth from the diff itself | dating correctness |
+| Scope | part-level applicability, read off the CFR part titles | not over-excluding |
+| Scope-exclusion | the same, inverted | not over-including |
+| Generated | in-force paragraphs on a deterministic stride | corpus reachability |
+| Human | hand-written, `benchmarks/human.yaml` | realistic query distribution |
+
+Each temporal item covers **one amended paragraph**, not a section's whole changed set. An
+earlier miner used the section's changed set, which made 41 of 252 items require more
+paragraphs than the pipeline returns — one needed 56 in a list of 8. They were unsatisfiable
+by construction and were being reported as retrieval failures, putting a floor under the
+bucket no configuration could beat. Minimality is not a nicety; a non-minimal evidence set is
+a silently broken benchmark.
 
 The human bucket will be small, and at that size confidence intervals will swallow the
 differences between configurations. It exists to characterize the query distribution, not to
@@ -296,19 +305,38 @@ Attribution is **multi-label**. A failure can implicate chunking *and* generatio
 interventional totals therefore **do not sum to the failure count**, and that is more honest
 than forcing them to.
 
+### Distinguishing a demotion from a cut
+
+`rerank` is charged only when the evidence was inside the fused top-`final_k` and the
+reranker moved it out. If it sat below `final_k` in the fused order, plain truncation would
+have lost it too, and the loss is `truncation`.
+
+This is not a detail. The first version of the ladder blamed `rerank` whenever a reranker had
+run, putting 124 failures on the cross-encoder — and removing the cross-encoder entirely then
+moved the bucket by 0.1 points, which cannot be true of a stage responsible for half the
+failures. Exactly the first-loss bias described above, caught by disagreement between the
+budget and a direct ablation, which is the argument for running both.
+
 ### The artifact
 
-The shape of the published table — **illustrative numbers, not measurements.** Nothing goes
-in the README until `make autopsy` produces it on a clean checkout.
+Measured, not illustrative. Full run in
+[`results/eval-002-failure-budget.md`](results/eval-002-failure-budget.md).
 
 ```
-N questions, M failures           after fixing the largest row
-observational first-loss:         observational first-loss:
-  retrieval             a           retrieval             a'
-  generation            b           generation            b'
-  reranking             c           reranking             c'
-  ...                               ...
+721 temporal items          before              after widening the head and cut
+                            236 failures        170 failures  (67.3% -> 76.4%)
+  ingestion                       0                   0
+  applicability                   0                   0
+  temporal                        0                   0
+  retrieval                      25                  25   unchanged, correctly
+  fusion                         87                  40   -47
+  rerank                         46                  64   +18, bottleneck moved on
+  truncation                     78                  41   -37
 ```
+
+The fix was chosen from the table rather than in advance, and the table moved where it
+predicted. `rerank` rising is the instrument working: more evidence survives long enough to
+reach the reranker, so more of it can be demoted there.
 
 The budget must be shown to **move** after a targeted fix. A budget that is only ever printed
 once is decoration; a budget that redirects the next commit is an instrument. Which row gets
@@ -339,13 +367,23 @@ to rebuild a historical vector index.
 
 Deterministic assertions in CI — correctness moved out of probabilistic evaluation:
 
-- For an as-of-dated query, the retrieved set contains **at most one version of any section
-  identifier**. Two versions of 630.1203 in one prompt is a filter bug, detectable before the
-  model runs.
-- Every cited chunk is applicable to the resolved scope.
-- Every cited chunk's validity interval contains the as-of date.
-- Every claim in an emitted answer carries at least one evidence ID.
+All of these run in CI as a separate job (`make invariants`), so a failure reads as *the
+system is wrong* rather than *a test broke*.
+
+- For an as-of-dated query, **at most one version of any section is in force** — all rows for
+  a section share a `valid_from`, and no paragraph address appears twice. Two versions of
+  630.1203 reaching one prompt is a filter bug, detectable before the model runs.
+- Every retrieved chunk's validity interval contains the as-of date.
+- Every retrieved chunk is applicable to the resolved scope.
+- **Every citation address is unambiguous.** 13% were not, before paragraph designators were
+  tracked hierarchically: eCFR flattens the CFR's `(a) -> (1) -> (i) -> (A)` nesting into
+  sibling `<P>` elements, so a section with several sub-lists restarts at `(a)` repeatedly and
+  `550.703#a` matched four different paragraphs. Levels are now recovered by designator
+  sequence continuity — `(ii)` after `(b)(1)(i)` is the second roman numeral, not the ninth
+  letter, and only what came before can tell those apart.
+- Validity intervals for a paragraph never overlap.
 - Apparatus stripping is idempotent, and fixtures assert the known pointer forms are removed.
+- *(P1)* Every claim in an emitted answer carries at least one evidence ID.
 
 ## 10. Load policy
 
@@ -375,7 +413,7 @@ Each ships something demonstrable on its own.
 
 | | Ships | Rationale |
 |---|---|---|
-| **P0** | eCFR point-in-time ingest, apparatus stripping, structural diff, bitemporal store, lexical + dense retrieval, applicability and as-of predicates, amendment-mined temporal benchmark, retrieval-only failure budget, one before/after shift | The headline artifact needs no LLM: 6 of the 8 stages are pre-generation |
+| **P0** ✅ | eCFR point-in-time ingest, apparatus stripping, structural diff, bitemporal store, lexical + dense retrieval + RRF + cross-encoder, applicability and as-of predicates, four benchmark buckets, observational and interventional failure localization, one before/after shift, five CI invariants | The headline artifact needs no LLM: 6 of the 8 stages are pre-generation |
 | **P1** | Generation, evidence IDs, deterministic span alignment | Makes it a RAG system rather than a search system |
 | **P2** | UI: time slider, scope selector, citation highlighting, trace viewer | The shareable artifact |
 | **P3** | Calibrated verifier, abstention tiers, risk–coverage | Depth; the repo stands without it |

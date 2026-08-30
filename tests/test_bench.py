@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from warrant.eval.bench import TemporalItem, mine, sample_date, shared_query
+from warrant.eval.bench import BenchItem, mine_temporal, sample_date, shared_query
 from warrant.index.store import Chunk, Store
 
 T0 = "2026-01-01T00:00:00+00:00"
@@ -39,7 +39,7 @@ NEW = ("(a) The agency shall utilize the probationary period as fully as possibl
 def test_amendment_yields_one_item_on_each_side(store: Store):
     add(store, "a", OLD, "2017-01-01", "2020-11-16")
     add(store, "a", NEW, "2020-11-16", None)
-    items = mine(store, horizon=HORIZON)
+    items = mine_temporal(store, horizon=HORIZON)
     assert {i.provenance["side"] for i in items} == {"before", "after"}
     assert len(items) == 2
 
@@ -49,7 +49,7 @@ def test_the_two_sides_share_a_query_but_differ_in_date_and_evidence(store: Stor
     entire reason the bucket is reported on its own."""
     add(store, "a", OLD, "2017-01-01", "2020-11-16")
     add(store, "a", NEW, "2020-11-16", None)
-    before, after = sorted(mine(store, horizon=HORIZON), key=lambda i: i.as_of)
+    before, after = sorted(mine_temporal(store, horizon=HORIZON), key=lambda i: i.as_of)
     assert before.query == after.query
     assert before.as_of < "2020-11-16" < after.as_of
     assert before.acceptable_evidence != after.acceptable_evidence
@@ -62,7 +62,7 @@ def test_evidence_is_version_qualified(store: Store):
     string and the benchmark would grade every answer correct."""
     add(store, "a", OLD, "2017-01-01", "2020-11-16")
     add(store, "a", NEW, "2020-11-16", None)
-    for item in mine(store, horizon=HORIZON):
+    for item in mine_temporal(store, horizon=HORIZON):
         assert "@" in item.acceptable_evidence[0][0]
         assert set(item.acceptable_evidence[0]).isdisjoint(item.distractors)
 
@@ -83,14 +83,14 @@ def test_query_drops_function_words():
 
 def test_unchanged_section_produces_no_items(store: Store):
     add(store, "a", OLD, "2017-01-01", None)
-    assert mine(store, horizon=HORIZON) == []
+    assert mine_temporal(store, horizon=HORIZON) == []
 
 
 def test_tiny_change_produces_no_items(store: Store):
     """Below the substantive threshold there is nothing a question could ask about."""
     add(store, "a", OLD, "2017-01-01", "2020-11-16")
     add(store, "a", OLD.replace("fitness", "suitability"), "2020-11-16", None)
-    assert mine(store, horizon=HORIZON) == []
+    assert mine_temporal(store, horizon=HORIZON) == []
 
 
 def test_pure_addition_produces_no_items(store: Store):
@@ -100,7 +100,7 @@ def test_pure_addition_produces_no_items(store: Store):
     add(store, "a", OLD, "2020-11-16", None)
     add(store, "b", "(b) A brand new paragraph with entirely different content here.",
         "2020-11-16", None)
-    assert mine(store, horizon=HORIZON) == []
+    assert mine_temporal(store, horizon=HORIZON) == []
 
 
 def test_sample_date_stays_clear_of_boundaries():
@@ -119,7 +119,7 @@ def test_open_interval_is_sampled_up_to_the_horizon():
 
 
 def test_is_satisfied_by_accepts_any_complete_set():
-    item = TemporalItem(id="x", query="q", as_of="2021-01-01", section_id="s", part="p",
+    item = BenchItem(id="x", bucket="t", query="q", as_of="2021-01-01", section_id="s", part="p",
                         heading="h", acceptable_evidence=[["a@1", "b@1"], ["c@1"]],
                         distractors=["a@2"])
     assert item.is_satisfied_by(["c@1", "z@1"])
@@ -128,7 +128,7 @@ def test_is_satisfied_by_accepts_any_complete_set():
 
 
 def test_leaked_reports_the_superseded_version():
-    item = TemporalItem(id="x", query="q", as_of="2021-01-01", section_id="s", part="p",
+    item = BenchItem(id="x", bucket="t", query="q", as_of="2021-01-01", section_id="s", part="p",
                         heading="h", acceptable_evidence=[["a@1"]], distractors=["a@2"])
     assert item.leaked(["a@1", "a@2"]) == ["a@2"]
     assert item.leaked(["a@1"]) == []

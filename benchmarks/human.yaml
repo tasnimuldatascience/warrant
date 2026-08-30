@@ -1,0 +1,188 @@
+# Hand-written questions for the `human` bucket.
+#
+# These are author-written, not collected from users, and the README says so. They exist to
+# characterise what a realistic query looks like -- shorter than the regulation, phrased as a
+# person would ask, using words the text may not contain -- not to rank configurations. At
+# this size the confidence intervals will swallow any difference between retrieval configs,
+# and reporting a winner from this bucket would be reporting noise.
+#
+# Evidence is written as `section#anchor` and resolved to the version in force on the item's
+# date when the file is loaded. Writing version ids by hand would rot on the next rebuild,
+# and a benchmark whose ground truth silently stops resolving is worse than no benchmark.
+#
+# `evidence` is a list of minimal sufficient sets: any one set is enough to answer.
+
+- id: probation-length
+  query: How long is the probationary period for a new federal employee?
+  evidence: [["315.904#a"]]
+
+- id: probation-credit
+  query: If I transfer to another agency during probation, does my earlier service count?
+  evidence: [["315.906#a"]]
+
+- id: probation-fail
+  query: What happens if an employee does not satisfactorily complete probation?
+  evidence: [["315.907#a"]]
+
+- id: term-appointment-length
+  query: How long can a term appointment last?
+  evidence: [["316.301#a"]]
+
+- id: term-probation
+  query: Does a term employee serve a probationary period?
+  evidence: [["316.304#a"]]
+
+- id: temporary-appointment
+  query: When may an agency make a temporary limited appointment?
+  evidence: [["316.401#a"]]
+
+- id: career-tenure-service
+  query: How much service is required to gain career tenure?
+  evidence: [["315.201#a"]]
+
+- id: reinstatement
+  query: Can a former federal employee be reinstated without competing again?
+  evidence: [["315.401#a"]]
+
+- id: military-spouse
+  query: Can a military spouse be appointed noncompetitively?
+  evidence: [["315.612#a"]]
+
+- id: merit-promotion
+  query: Is an agency required to have a merit promotion plan?
+  evidence: [["335.103#a"]]
+
+- id: promote-reassign
+  query: What authority does an agency have to promote, demote or reassign an employee?
+  evidence: [["335.102#a"]]
+
+- id: rif-competitive-area
+  query: How is a competitive area defined for a reduction in force?
+  evidence: [["351.402#a"]]
+
+- id: rif-retention-register
+  query: When must an agency build a retention register?
+  evidence: [["351.404#a"]]
+
+- id: rif-order-competitive
+  query: In what order are employees retained in a RIF in the competitive service?
+  evidence: [["351.501#a"]]
+
+- id: rif-length-of-service
+  query: What service counts toward my retention standing in a reduction in force?
+  evidence: [["351.503#a"]]
+
+- id: rif-performance-credit
+  query: How do performance ratings affect retention standing in a RIF?
+  evidence: [["351.504#a"]]
+
+- id: rif-notice
+  query: How much advance notice must I get before being separated in a reduction in force?
+  evidence: [["351.805#a"]]
+
+- id: rif-furlough
+  query: When can an agency use a furlough instead of a reduction in force?
+  evidence: [["351.604#a"]]
+
+- id: userra-covered
+  query: Who is covered by restoration rights after military service?
+  evidence: [["353.103#a"]]
+
+- id: userra-apply
+  query: How soon must I apply for reemployment after returning from uniformed service?
+  evidence: [["353.205#a"]]
+
+- id: userra-position
+  query: What position am I entitled to when I return from military service?
+  evidence: [["353.207#a"]]
+
+- id: training-service-agreement
+  query: Can my agency make me sign an agreement to keep working after paid training?
+  evidence: [["410.309#a"]]
+
+- id: training-degree
+  query: May an agency pay for training that leads to an academic degree?
+  evidence: [["410.308#a"]]
+
+- id: appraisal-period
+  query: How long is a performance appraisal period?
+  evidence: [["430.206#a"]]
+
+- id: appraisal-minimum
+  query: What is the minimum time I must work before I can be rated?
+  evidence: [["430.207#a"]]
+
+- id: rating-performance
+  query: When must an agency issue a rating of record after the appraisal period ends?
+  evidence: [["430.208#a"]]
+
+- id: unacceptable-coverage
+  query: Which actions are covered by the rules on unacceptable performance?
+  evidence: [["432.102#a"]]
+
+- id: unacceptable-proposing
+  query: What must an agency do before removing someone for unacceptable performance?
+  evidence: [["432.105#a"]]
+
+- id: awards-program
+  query: Are agencies required to have an employee awards program?
+  evidence: [["451.103#a"]]
+
+- id: awards-restrictions
+  query: What restrictions apply to granting cash awards?
+  evidence: [["451.105#a"]]
+
+- id: wgi-earning
+  query: What do I have to do to earn a within-grade increase?
+  evidence: [["531.404#a"]]
+  scope: {pay_system: GS}
+
+- id: wgi-waiting
+  query: How long is the waiting period between within-grade increases?
+  evidence: [["531.405#a"]]
+  scope: {pay_system: GS}
+
+- id: wgi-effective
+  query: When does a within-grade increase take effect?
+  evidence: [["531.412#a"]]
+  scope: {pay_system: GS}
+
+- id: quality-step-increase
+  query: What rating do I need to receive a quality step increase?
+  evidence: [["531.504#a"]]
+  scope: {pay_system: GS}
+
+- id: locality-areas
+  query: How are locality pay areas determined?
+  evidence: [["531.603#a"]]
+  scope: {pay_system: GS}
+
+- id: severance-eligibility
+  query: Am I eligible for severance pay if I am involuntarily separated?
+  evidence: [["550.704#a"]]
+
+- id: severance-computation
+  query: How is the severance pay fund calculated?
+  evidence: [["550.707#a"]]
+
+- id: pay-advance
+  query: Can a new employee receive an advance of pay?
+  evidence: [["550.203#a"]]
+
+- id: sunday-pay
+  query: Am I entitled to extra pay for working on a Sunday?
+  evidence: [["550.171#a"]]
+
+- id: availability-pay
+  query: How many hours must a criminal investigator work to qualify for availability pay?
+  evidence: [["550.183#a"]]
+
+- id: fws-survey-cycle
+  query: How often are prevailing rate wage surveys conducted?
+  evidence: [["532.207#a"]]
+  scope: {pay_system: FWS}
+
+- id: fws-schedule-structure
+  query: How is a regular wage schedule structured for wage grade employees?
+  evidence: [["532.203#a"]]
+  scope: {pay_system: FWS}

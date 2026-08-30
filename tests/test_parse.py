@@ -70,3 +70,39 @@ def test_parse_is_stable_across_calls():
     assert [s.identifier for s in parse_sections(PART)] == [
         s.identifier for s in parse_sections(PART)
     ]
+
+
+NESTED = b"""
+<DIV8 N="550.112" TYPE="SECTION">
+  <HEAD>&#167; 550.112 Computation of overtime work.</HEAD>
+  <P>The computation of the amount of overtime work is subject to the following.</P>
+  <P>(a) Time spent in principal activities.</P>
+  <P>(1) An employee shall be compensated for every minute.</P>
+  <P>(2) A quarter of an hour shall be the largest fraction.</P>
+  <P>(b) Time spent in preshift activities.</P>
+  <P>(1) (i) If the head of a department reasonably determines.</P>
+  <P>(ii) If the time spent in a preshift activity is compensable.</P>
+  <P>(2) A preshift activity that is not closely related.</P>
+  <P>(c) Leave with pay.</P>
+</DIV8>
+"""
+
+
+def test_nested_designators_produce_hierarchical_anchors():
+    """(ii) after (b)(1)(i) is the second roman numeral, not the ninth letter. Type alone
+    cannot tell those apart; only what came before can."""
+    anchors = [p.anchor for p in section_index(NESTED)["550.112"].paragraphs]
+    assert anchors == ["p1", "a", "a-1", "a-2", "b", "b-1-i", "b-1-ii", "b-2", "c"]
+
+
+def test_anchors_are_unique_within_a_section():
+    """A citation that matches four paragraphs is not a citation. Before the designator
+    stack was tracked, 13% of addresses in the corpus were ambiguous."""
+    anchors = [p.anchor for p in section_index(NESTED)["550.112"].paragraphs]
+    assert len(anchors) == len(set(anchors))
+
+
+def test_sibling_letters_close_deeper_levels():
+    """(c) after (b)(1)(ii) must reset to the top level, not nest under it."""
+    anchors = [p.anchor for p in section_index(NESTED)["550.112"].paragraphs]
+    assert anchors[-1] == "c"

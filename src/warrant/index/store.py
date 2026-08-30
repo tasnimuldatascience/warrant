@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -83,6 +83,19 @@ CREATE TRIGGER IF NOT EXISTS chunk_ad AFTER DELETE ON chunk BEGIN
     VALUES ('delete', old.id, old.text, old.heading, old.version_id);
 END;
 """
+
+
+def _exclusion_clause(parts: Sequence[str], params: dict[str, object],
+                      alias: str = "") -> str:
+    """Bind an applicability exclusion into a query, or return nothing if there is none."""
+    if not parts:
+        return ""
+    names = []
+    for i, p in enumerate(parts):
+        key = f"xp{i}"
+        params[key] = p
+        names.append(f":{key}")
+    return f"AND {alias}part NOT IN ({', '.join(names)})"
 
 
 def now() -> str:
@@ -192,11 +205,16 @@ class Store:
     # -- reading -----------------------------------------------------------------
 
     def as_of(self, valid_date: str, *, system_time: str | None = None,
-              part: str | None = None) -> list[sqlite3.Row]:
+              part: str | None = None,
+              exclude_parts: Sequence[str] = ()) -> list[sqlite3.Row]:
         """Every chunk in force on ``valid_date``, as the system believed at ``system_time``.
 
         Omitting ``system_time`` means "as the system believes now", which is the ordinary
         query path. Supplying it is what makes audit replay possible.
+
+        ``exclude_parts`` carries the applicability predicate, computed by
+        ``warrant.retrieve.scope``. It is a correctness filter, not an access control: see
+        that module and ARCHITECTURE.md section 3.
         """
         sys_t = system_time or now()
         sql = [
@@ -208,6 +226,7 @@ class Store:
         if part is not None:
             sql.append("AND part = :p")
             params["p"] = part
+        sql.append(_exclusion_clause(exclude_parts, params))
         return self.db.execute(" ".join(sql), params).fetchall()
 
     def versions_of(self, section_id: str) -> list[sqlite3.Row]:
@@ -217,7 +236,8 @@ class Store:
         ).fetchall()
 
     def search(self, query: str, *, valid_date: str, system_time: str | None = None,
-               limit: int = 100, temporal: bool = True) -> list[sqlite3.Row]:
+               limit: int = 100, temporal: bool = True,
+               exclude_parts: Sequence[str] = ()) -> list[sqlite3.Row]:
         """Lexical search with the as-of predicate pushed into the query.
 
         The predicate lives inside the SQL, not applied to results afterwards. Filtering
@@ -233,15 +253,47 @@ class Store:
         sys_t = system_time or now()
         valid_clause = ("AND c.valid_from <= :v AND (c.valid_to IS NULL OR c.valid_to > :v) "
                         if temporal else "")
+        params: dict[str, object] = {"q": query, "v": valid_date, "s": sys_t, "k": limit}
+        excl = _exclusion_clause(exclude_parts, params, alias="c.")
         return self.db.execute(
             "SELECT c.*, bm25(chunk_fts) AS score "
             "FROM chunk_fts JOIN chunk c ON c.id = chunk_fts.rowid "
             "WHERE chunk_fts MATCH :q "
             f"{valid_clause}"
             "AND c.system_from <= :s AND (c.system_to IS NULL OR c.system_to > :s) "
+            f"{excl} "
             "ORDER BY score LIMIT :k",
-            {"q": query, "v": valid_date, "s": sys_t, "k": limit},
+            params,
         ).fetchall()
+
+    def candidate_ids(self, *, valid_date: str, system_time: str | None = None,
+                      temporal: bool = True,
+                      exclude_parts: Sequence[str] = ()) -> set[int]:
+        """Row ids admitted by the predicates, for restricting a dense search.
+
+        Dense retrieval cannot express the predicate in SQL, so it restricts the search space
+        to these ids *before* scoring. That is still pushing the predicate into the query --
+        the candidate set is narrowed first -- rather than filtering a ranked list afterwards.
+        """
+        sys_t = system_time or now()
+        valid_clause = ("AND valid_from <= :v AND (valid_to IS NULL OR valid_to > :v) "
+                        if temporal else "")
+        params: dict[str, object] = {"v": valid_date, "s": sys_t}
+        excl = _exclusion_clause(exclude_parts, params)
+        rows = self.db.execute(
+            "SELECT id FROM chunk WHERE system_from <= :s "
+            "AND (system_to IS NULL OR system_to > :s) "
+            f"{valid_clause}{excl}",
+            params,
+        ).fetchall()
+        return {r["id"] for r in rows}
+
+    def rows_by_id(self, ids: Sequence[int]) -> dict[int, sqlite3.Row]:
+        if not ids:
+            return {}
+        marks = ",".join("?" * len(ids))
+        return {r["id"]: r for r in
+                self.db.execute(f"SELECT * FROM chunk WHERE id IN ({marks})", list(ids))}
 
     def count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM chunk").fetchone()[0]
