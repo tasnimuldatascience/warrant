@@ -19,6 +19,8 @@ help:
 	@echo "latency     latency vs quality per configuration"
 	@echo "autopsy     localize every failure to a stage; print the failure budget"
 	@echo "serve       run the HTTP API on :8000"
+	@echo "gate        fail if quality regressed below the recorded floor"
+	@echo "abstention  risk-coverage, calibration, ECE"
 	@echo "test        run the unit suite (offline)"
 	@echo "invariants  the deterministic correctness gates"
 	@echo "all         fetch -> build -> index -> eval -> autopsy"
@@ -72,3 +74,9 @@ clean:
 	rm -rf runs/* .pytest_cache .ruff_cache
 
 all: fetch build index eval autopsy
+
+gate:
+	$(PY) -m warrant.cli eval gate -c $(CFG) --split $(SPLIT)
+
+abstention:
+	$(PY) -m warrant.cli eval abstention -c $(CFG)

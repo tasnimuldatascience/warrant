@@ -31,6 +31,7 @@ present tense throughout is a document a reviewer cannot trust. Every section be
 | **[built]** | in `src/`, covered by tests, and exercised by the published numbers |
 | **[partial]** | some of it exists; the section says exactly which part |
 | **[designed]** | decided and specified, no implementation yet; the phase table in section 12 says when |
+| **[built, off]** | built and tested, disabled in the shipped config, with the measurement that decided it written beside the flag |
 
 If a claim is unmarked, treat it as designed rather than built. An earlier revision of this
 document described query classification, parent expansion, context assembly, TREC pooling,
@@ -198,7 +199,7 @@ hash, not replayed. Section 8 says what each replay mode therefore guarantees.
 query
   -> scope resolution: (pay system, service)                      [built]
   -> applicability + as-of predicate, pushed into the query       [built]
-  -> BM25  ||  dense                                              [built]
+  -> BM25  ||  dense (concurrent; 31.1 -> 18.4 ms p50)            [built]
   -> reciprocal rank fusion                                       [built]
   -> cross-encoder rerank                                         [built]
   -> context assembly (top context_k excerpts, numbered)          [partial]
@@ -206,12 +207,22 @@ query
   -> deterministic span alignment                                 [built]
   -> answer | abstain                                             [built]
 
+  -> source + authority filter, authority tie-break in fusion     [built]
   -> query classification (semantic / structured / comparative)   [designed]
   -> parent expansion + dedup                                     [designed]
   -> token-budgeted assembly, table preservation                  [designed]
-  -> entailment + contradiction                                   [designed]
-  -> calibrated confidence -> qualified answer | flag conflict     [designed]
+  -> entailment + contradiction                                   [built, off]
+  -> calibrated confidence -> qualified answer | flag conflict     [built, off]
 ```
+
+Two stages are marked **[built, off]** rather than built. Both exist, are tested, and are
+disabled in `configs/default.yaml` with the number that decided it beside them: entailment
+buys +2.3 points over span alignment at p=0.55 on real generator output, and the calibrated
+combiner does not beat a threshold on the single top-1 fusion score (AURC delta +0.0019, CI
+-0.0017 to +0.0070). Shipping them on would be asserting a benefit the measurement does not
+support; deleting them would discard the one thing they demonstrably do buy, which for
+entailment is a second channel -- +49.1 points on claims flipped to contradict their
+evidence, where the span aligner finds a supporting span every single time.
 
 **Scope facets are `pay_system` and `service` only.** Agency, role and bargaining unit are
 discussed in section 3 as the shape of the problem; `Scope.of` rejects them. Context assembly
@@ -470,10 +481,12 @@ Each ships something demonstrable on its own.
 |---|---|---|
 | **P0** ✅ | eCFR point-in-time ingest, apparatus stripping, structural diff, bitemporal store, lexical + dense + RRF + cross-encoder, applicability and as-of predicates, four benchmark buckets with a section-level dev/test split, observational and interventional failure localization, seven CI invariants | The headline artifact needs no LLM |
 | **P1** ✅ | Generation, evidence ids, deterministic span alignment, and the measurement of all three — hallucination rate, citation precision, abstention quality | A generator nothing scores is a generator nobody can trust |
-| **P2** | UI: time slider, scope selector, citation highlighting, trace viewer | Designed; the API it runs on is built |
-| **P3** | Calibrated verifier, abstention tiers, risk–coverage | The measured gap: the model never abstains, on 6 of 29 held-out questions |
+| **P2** | UI: time slider, scope selector, citation highlighting, trace viewer | Designed; the API it runs on is built, and `/api/ask/stream` sends the evidence at 18 ms rather than making the UI wait 19 s for the prose |
+| **P3** ✅ | Calibrated verifier, abstention tiers, risk–coverage | Built and measured. The finding is a null: eight features do not beat one. Both stages ship behind flags carrying their own p-values |
 | **P4** ✅ | Artifact and counterfactual replay over persisted traces | |
 | **P5** | Retrieval-stage shedding and a real load test | The latency frontier is measured; the shedding policy is not tested under load |
+| **P6** ✅ | Five-tier source hierarchy: statute, regulation, notices, guidance, archival scans, with authority pushed into retrieval | Reading only the regulation is reading the middle of an argument |
+| **P7** ✅ | Operations: Prometheus metrics, correlated structured logs, measured serving guardrails, a quality gate whose floor is a bootstrap lower bound | A number nobody reads back is a number that silently stops being true |
 
 P1 did not start until P0 showed the benchmark was viable, and the benchmark was
 rebuilt twice after that when the instrument found it measuring the wrong thing.
