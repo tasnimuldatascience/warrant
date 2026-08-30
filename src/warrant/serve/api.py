@@ -62,6 +62,7 @@ from ..observe.logging import trace_id as _trace_id
 from ..retrieve.dense import DenseIndex, uncovered
 from ..retrieve.hybrid import Retriever
 from ..retrieve.scope import PART_RESTRICTIONS, Scope
+from . import guard
 from . import metrics as _metrics
 
 log = logging.getLogger(__name__)
@@ -532,7 +533,8 @@ def _record(rt: Runtime, trace: Any, answer: Any = None) -> str | None:
 
 
 def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store | None = None,
-               warm: bool = True, thread_limit: int = THREAD_LIMIT) -> FastAPI:
+               warm: bool = True, thread_limit: int = THREAD_LIMIT,
+               guards: guard.Guards | None = None) -> FastAPI:
     """Build the app.
 
     ``store`` injects an already-open store, and ``warm=False`` skips the lifespan build.
@@ -540,6 +542,7 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
     this module was at 0% coverage, and every bug the audit found had shipped behind that.
     """
     rt = Runtime(cfg or Config.load(), generate=generate, _store=store)
+    guards = guards or guard.Guards()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -556,12 +559,18 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
 
     app = FastAPI(title="warrant", docs_url="/api/docs", openapi_url="/api/openapi.json",
                   lifespan=lifespan)
+    app.add_exception_handler(guard.GuardError, guard.guard_error_handler)
 
     # Regulation text is highly repetitive and gzips ~4:1; a §315.201 section response is
     # 65,551 bytes of JSON, so this is the difference between a 64 KB and a 16 KB timeline
     # load. minimum_size skips the small metadata responses, where the header costs more
     # than the compression saves.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
+    # Order matters. Added here, the limiter sits inside CORS and inside request_id, so a
+    # 429 still carries its CORS headers and its X-Request-ID -- a rejection the browser
+    # cannot read, or that a user cannot quote, is a rejection nobody can act on.
+    app.add_middleware(guard.RateLimitMiddleware, answer=guards.answer,
+                       read=guards.read, enabled=guards.enabled)
     app.add_middleware(
         CORSMiddleware, allow_origin_regex=LOCAL_ORIGIN_RE, allow_credentials=False,
         allow_methods=["GET", "OPTIONS"], allow_headers=["*"],
@@ -713,11 +722,14 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
     # -- ask --------------------------------------------------------------------
 
     @app.get("/api/ask", response_model=AskResponse)
-    def ask(q: str = Query(min_length=2, max_length=512),
+    def ask(question: guard.Question = guard.QuestionParam,
             as_of: str = Query(max_length=32),
             pay_system: str | None = None,
             service: str | None = None,
             generate: bool = True) -> AskResponse:
+        # The normalised text, not the bytes that arrived: what gets echoed back must be
+        # the query that was actually answered. `question.raw` still holds the original.
+        q = question.text
         as_of = _date(as_of, "as_of")
         scope = _scope(pay_system, service)
         rt.read_only()
@@ -745,8 +757,16 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
             payload.trace_id = _record(rt, trace)
             return payload
 
-        answer = _generate_answer(rt, q, excerpts_for(rt.store, trace),
+        prompt = guard.bound_excerpts(excerpts_for(rt.store, trace))
+        prompt.cost().check(GENERATE_DEADLINE_S)
+        answer = _generate_answer(rt, q, prompt.excerpts,
                                   as_of=as_of, scope=scope.describe())
+        # Recorded before validation, deliberately: a response withheld for failing its
+        # output check is the one you most want to replay, and recording afterwards would
+        # be the one path that leaves no trace.
+        payload.trace_id = _record(rt, trace, answer=answer)
+        guard.check_answer_against(rt.store, answer, as_of=as_of,
+                                   retrieved=[v for v, _, _ in prompt.excerpts])
         payload.abstained = answer.abstained
         payload.parse_failed = answer.parse_failed
         payload.claims = [
@@ -762,7 +782,6 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
             )
             for c in answer.claims
         ]
-        payload.trace_id = _record(rt, trace, answer=answer)
         return payload
 
     # -- version history --------------------------------------------------------

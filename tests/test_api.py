@@ -26,7 +26,7 @@ from fastapi.testclient import TestClient
 from warrant.config import Config
 from warrant.generate.answer import Answer, Claim
 from warrant.index.store import Chunk, Store
-from warrant.serve import api
+from warrant.serve import api, guard
 from warrant.serve.api import create_app
 from warrant.verify.align import Span
 
@@ -133,7 +133,8 @@ def cfg(tmp_path_factory) -> Config:
 
 @pytest.fixture(scope="module")
 def client(cfg: Config, store: Store) -> TestClient:
-    app = create_app(cfg, generate=False, store=store, warm=True, thread_limit=2)
+    app = create_app(cfg, generate=False, store=store, warm=True, thread_limit=2,
+        guards=guard.Guards(enabled=False))
     with TestClient(app) as c:
         yield c
 
@@ -145,7 +146,7 @@ def bare_client(tmp_path_factory) -> TestClient:
     c.store.path = str(tmp_path_factory.mktemp("empty") / "warrant.sqlite3")
     c.index.dense.enabled = False
     c.index.rerank.enabled = False
-    app = create_app(c, generate=False, warm=False)
+    app = create_app(c, generate=False, warm=False, guards=guard.Guards(enabled=False))
     with TestClient(app) as client:
         yield client
 
@@ -246,7 +247,7 @@ def test_a_well_formed_but_absent_version_is_404(client: TestClient):
 def test_a_missing_budget_is_503_not_a_crash(cfg: Config, store: Store, tmp_path):
     c = cfg.model_copy(deep=True)
     c.store.budget = str(tmp_path / "never-recorded.json")
-    app = create_app(c, generate=False, store=store, warm=False)
+    app = create_app(c, generate=False, store=store, warm=False, guards=guard.Guards(enabled=False))
     with TestClient(app) as client:
         r = client.get("/api/budget")
     assert r.status_code == 503
@@ -340,7 +341,8 @@ def test_a_failed_warm_up_is_reported_not_fatal(tmp_path):
     c.store.path = str(tmp_path / "absent.sqlite3")
     c.index.dense.enabled = False
     c.index.rerank.enabled = False
-    with TestClient(create_app(c, generate=False, warm=True)) as client:
+    with TestClient(create_app(c, generate=False, warm=True,
+        guards=guard.Guards(enabled=False))) as client:
         assert client.get("/health").status_code == 200
         body = client.get("/ready").json()
     assert body["ready"] is False
@@ -363,7 +365,8 @@ def test_every_read_endpoint_asserts_query_only(cfg: Config, store: Store, monke
     calls: list[str] = []
     original = store.read_only
     monkeypatch.setattr(store, "read_only", lambda: (calls.append(route), original())[1])
-    app = create_app(cfg, generate=False, store=store, warm=False, thread_limit=2)
+    app = create_app(cfg, generate=False, store=store, warm=False, thread_limit=2,
+        guards=guard.Guards(enabled=False))
     with TestClient(app) as c:
         assert c.get(route).status_code == 200
     assert calls, f"{route} never asserted query_only"
@@ -414,7 +417,8 @@ class _AnsweringGenerator:
 def test_ask_returns_claims_and_spans_when_generation_runs(cfg: Config, store: Store,
                                                            monkeypatch):
     monkeypatch.setattr("warrant.generate.model.Generator", _AnsweringGenerator)
-    app = create_app(cfg, generate=True, store=store, warm=False, thread_limit=2)
+    app = create_app(cfg, generate=True, store=store, warm=False, thread_limit=2,
+        guards=guard.Guards(enabled=False))
     with TestClient(app) as client:
         body = client.get("/api/ask", params={"q": "restored annual leave",
                                               "as_of": "2018-06-01"}).json()
@@ -482,7 +486,8 @@ def test_lifespan_caps_the_threadpool(cfg: Config, store: Store):
     """Retrieval peaks at 4 threads (66 QPS) and falls to 25.6 QPS at 16; anyio's default is
     40, which is 40 workers contending for a GIL none of them releases."""
     async def limit() -> float:
-        app = create_app(cfg, generate=False, store=store, warm=False, thread_limit=3)
+        app = create_app(cfg, generate=False, store=store, warm=False, thread_limit=3,
+            guards=guard.Guards(enabled=False))
         async with app.router.lifespan_context(app):
             return anyio.to_thread.current_default_thread_limiter().total_tokens
 
@@ -500,7 +505,8 @@ def test_meta_over_the_built_corpus_spans_years():
         pytest.skip("no corpus built; run `make fetch && make build`")
     c.index.dense.enabled = False
     c.index.rerank.enabled = False
-    with TestClient(create_app(c, generate=False, warm=False)) as client:
+    with TestClient(create_app(c, generate=False, warm=False,
+        guards=guard.Guards(enabled=False))) as client:
         meta = client.get("/api/meta").json()
     assert meta["latest"] > meta["earliest"] >= meta["history_floor"]
 
@@ -547,3 +553,35 @@ def test_a_scrape_never_takes_the_service_down(client: TestClient, monkeypatch):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         assert client.get("/metrics").status_code == 200
+
+
+def test_a_rate_limited_response_is_still_readable_by_the_browser(tmp_path):
+    """Every other test in this module disables the limiter, because TestClient presents
+    one client identity and thirty requests then read as one caller at thirty times the
+    ceiling. Disabling it is right -- raising the limit would make the measured ceiling a
+    fiction -- but it would also mean nothing here ever exercises a 429 through the real
+    middleware stack. This does.
+
+    The assertions are about position in that stack, not about the limiter's arithmetic
+    (tests/test_guard.py owns that). A 429 whose CORS headers were stripped is invisible to
+    the page that provoked it, and one without an X-Request-ID is a rejection the user
+    cannot quote back. Both are decided by where the middleware sits, and both would still
+    pass every unit test of the limiter itself.
+    """
+    store = Store(":memory:")
+    store.add(SYNTHETIC)
+    cfg = Config.load()
+    app = api.create_app(cfg, generate=False, store=store, warm=False, thread_limit=2,
+                         guards=guard.Guards(answer=guard.RateLimiter(1e-6, burst=1),
+                                             read=guard.RateLimiter(1e-6, burst=1)))
+    with TestClient(app) as client:
+        origin = {"Origin": "http://localhost:5173"}
+        first = client.get("/api/meta", headers=origin)
+        assert first.status_code == 200
+
+        limited = client.get("/api/meta", headers=origin)
+        assert limited.status_code == 429
+        assert limited.headers.get("Retry-After"), "a 429 with no Retry-After is a guess"
+        assert limited.headers.get("X-Request-ID"), "outside request_id: nothing to quote"
+        assert limited.headers.get("access-control-allow-origin") == origin["Origin"], (
+            "inside CORS: the page that provoked this cannot read it")
