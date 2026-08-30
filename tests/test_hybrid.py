@@ -16,6 +16,7 @@ from warrant.retrieve.hybrid import (
     fts_query,
     fuse,
     reciprocal_rank_fusion,
+    stem,
 )
 from warrant.retrieve.scope import GOVERNMENT_WIDE, Scope
 
@@ -216,3 +217,33 @@ def test_authority_never_reorders_candidates_that_are_not_tied():
                  authority={"a-statute": AUTHORITY_STATUTE,
                             "opm-sheet": AUTHORITY_GUIDANCE})
     assert fused[0].version_id == "opm-sheet"
+
+
+def test_high_frequency_terms_are_dropped_only_when_configured():
+    """Off by default: every published number was measured with every term kept, and a
+    ranking change that arrives silently makes those numbers describe a system nobody ran."""
+    df = {"the": 12037, "annual": 1147}
+    assert fts_query("the annual leave") == '"the" OR "annual" OR "leave"'
+    filtered = fts_query("the annual leave", document_frequency=df, corpus=13212,
+                         drop_above=0.5)
+    assert '"the"' not in filtered
+    assert '"annual"' in filtered and '"leave"' in filtered
+
+
+def test_a_query_of_nothing_but_common_words_keeps_its_rarest_term():
+    """An empty FTS expression matches nothing, so filtering every term would turn 'all of
+    these words are common' into 'there is no answer' -- a worse failure than a slow one,
+    and one that looks like a correct empty result."""
+    df = {"the": 12037, "employe": 6691}
+    q = fts_query("the employee", document_frequency={**df}, corpus=13212, drop_above=0.1)
+    assert q == '"employee"', q
+
+
+def test_document_frequency_is_looked_up_on_stems_not_words():
+    """The index tokenises with porter, so its vocabulary holds `schedul`, not `scheduled`.
+    Looking up raw words finds nothing, concludes every term is rare, and silently disables
+    the filter -- failing in the direction that looks like it is working."""
+    assert stem(["scheduled", "employees", "annual"]) == ["schedul", "employe", "annual"]
+    df = {"schedul": 13000}
+    assert '"scheduled"' not in fts_query("scheduled leave", document_frequency=df,
+                                          corpus=13212, drop_above=0.5)

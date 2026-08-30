@@ -53,8 +53,30 @@ RRF_K = 60
 MAX_QUERY_TOKENS = 64
 
 
-def fts_query(text: str, *, max_tokens: int = MAX_QUERY_TOKENS) -> str:
-    """Escape a natural-language query for FTS5, deduplicated and capped.
+_STEMMER = None
+
+
+def stem(tokens: Sequence[str]) -> list[str]:
+    """Porter-stem, matching the tokenizer the FTS index was built with.
+
+    The index is declared ``tokenize='porter unicode61'``, so its vocabulary holds
+    ``schedul`` and ``employe``, not the words a user typed. A document-frequency lookup on
+    unstemmed terms finds nothing, concludes every term is rare, and silently disables the
+    filter that depends on it -- failing in the direction that looks like it is working.
+    """
+    global _STEMMER
+    if _STEMMER is None:
+        import Stemmer
+
+        _STEMMER = Stemmer.Stemmer("english")
+    return _STEMMER.stemWords(list(tokens))
+
+
+def fts_query(text: str, *, max_tokens: int = MAX_QUERY_TOKENS,
+              document_frequency: Mapping[str, int] | None = None,
+              corpus: int = 0, drop_above: float | None = None) -> str:
+    """Escape a natural-language query for FTS5, deduplicated, capped, and optionally
+    stripped of terms so common they select most of the corpus.
 
     FTS5 reads bare punctuation as syntax, so a heading containing a colon or a hyphen is a
     parse error rather than a query. Quoting each token keeps the query literal, which is
@@ -63,9 +85,31 @@ def fts_query(text: str, *, max_tokens: int = MAX_QUERY_TOKENS) -> str:
     Deduplication is a denial-of-service fix rather than a tidy-up -- see
     ``MAX_QUERY_TOKENS`` -- and it costs nothing in retrieval quality, because a repeated
     term contributes no postings that its first occurrence did not.
+
+    ``drop_above`` is a different matter and is off unless configured. The terms are ORed,
+    so one common word admits everything it appears in: a scale study measured that a query
+    MATCHes **88-90% of the corpus at every size**, and since ``ORDER BY bm25(...) LIMIT k``
+    has no top-k pruning, FTS5 scores every one of those rows. The cost is exactly linear at
+    2.0us/row, which is 24.6ms at 13k chunks and 1,008ms at 500k. Dropping terms above a
+    document-frequency fraction is the single largest available win -- and it is a *ranking*
+    change, not a tuning knob, so it is hashed into the config and has to be defended on the
+    held-out split rather than on the latency table.
+
+    A query of nothing but common words keeps its rarest term instead of being emptied. An
+    empty query matches nothing at all, which would turn "every word here is common" into
+    "there is no answer" -- a far worse failure than a slow one.
     """
     tokens = [t for t in ("".join(c if c.isalnum() else " " for c in text)).split() if t]
     unique = list(dict.fromkeys(tokens))[:max_tokens]
+
+    if drop_above is not None and document_frequency and corpus > 0 and unique:
+        stems = dict(zip(unique, stem(unique), strict=True))
+        ceiling = drop_above * corpus
+        kept = [t for t in unique if document_frequency.get(stems[t], 0) <= ceiling]
+        if not kept:
+            kept = [min(unique, key=lambda t: document_frequency.get(stems[t], 0))]
+        unique = kept
+
     return " OR ".join(f'"{t}"' for t in unique) or '""'
 
 
@@ -312,6 +356,9 @@ class Retriever:
     #: rather than for lawyers, it usually does.
     sources: tuple[str, ...] | None = None
     max_authority: int | None = None
+    #: Drop query terms appearing in more than this fraction of indexed documents. None
+    #: keeps every term, which is the behaviour every published number was measured under.
+    max_document_frequency: float | None = None
 
     def model_names(self) -> dict[str, str]:
         """The models behind this ranking. Absent components get no key at all."""
@@ -353,7 +400,7 @@ class Retriever:
         # eight of eight worker threads raising ProgrammingError under load.
         def run_lexical() -> tuple[list[tuple[int, float]], float]:
             t = time.perf_counter()
-            rows = self.store.search(fts_query(query), valid_date=as_of,
+            rows = self.store.search(self._fts(query), valid_date=as_of,
                                      system_time=system_time,
                                      limit=self.candidates_lexical, temporal=self.temporal,
                                      exclude_parts=excluded, sources=self.sources,
@@ -395,6 +442,23 @@ class Retriever:
             trace.record("final", head[: self.final_k])
         trace.timings["total"] = (time.perf_counter() - started) * 1000.0
         return trace
+
+    def _fts(self, query: str) -> str:
+        """The FTS expression for one query, with the high-frequency filter if configured.
+
+        The document-frequency lookup is one indexed read over at most 64 terms against
+        FTS5's own vocabulary view, so it costs microseconds and cannot go stale the way a
+        term table written at index time would.
+        """
+        if self.max_document_frequency is None:
+            return fts_query(query)
+        tokens = [t for t in ("".join(c if c.isalnum() else " " for c in query)).split()]
+        unique = list(dict.fromkeys(tokens))[:MAX_QUERY_TOKENS]
+        return fts_query(
+            query,
+            document_frequency=self.store.document_frequency(stem(unique)),
+            corpus=self.store.indexed_documents(),
+            drop_above=self.max_document_frequency)
 
     def _authority(self, rankings: Sequence[Sequence[str]]) -> dict[str, int]:
         """Authority for every candidate about to be fused, for tie-breaking only.

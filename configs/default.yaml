@@ -92,6 +92,33 @@ retrieve:
   # words -- which is exactly what makes it outrank the law it summarises.
   sources: []
   max_authority: null
+  # Drop query terms appearing in more than this fraction of indexed documents. null keeps
+  # every term, which is what every published number was measured under.
+  #
+  # Off deliberately, not by oversight. Terms are ORed, so one common word admits everything
+  # containing it: "the" is in 91.1% of this corpus and "employe" in 50.6%, and FTS5 has no
+  # top-k pruning, so it scores all of them. Setting 0.20 takes 27% off the lexical stage and
+  # costs a difference in sufficiency that is not measurable -- but lexical latency is 18.4ms
+  # against a nineteen-second generation, so the win is invisible to a user, while the
+  # ranking change is real and the quality test (262 items, at most 4 moving) is too small to
+  # rule out a small harm. That trade only becomes worth making at scale: the lexical stage
+  # passes the whole pipeline's p50 at ~35k rows. See results/eval-014-query-terms.md.
+  max_document_frequency: null
+  # Reference-directed second hop: follow the citations a retrieved paragraph makes and admit
+  # the targets the evidence set does not already hold. hop_budget is how many of final_k's
+  # slots those admissions may take; 0 disables it.
+  #
+  # Off, and this is the closest call in the config. At 8/depth 3 the share of evidence sets
+  # carrying an unsatisfied reference falls 70.8% -> 32.2%, 3.65 -> 1.20 per answer, for
+  # 1.4ms. Sufficiency costs -0.88 points (CI -2.09 to 0.00, 0 won / 3 lost, p=0.25) -- not
+  # distinguishable from zero, but never once positive at any budget or depth, and the whole
+  # loss lands on the 29-item human bucket.
+  #
+  # The benefit is on an intermediate metric and the cost is on the outcome metric, and
+  # nothing here has yet shown that closing a dangling reference produces a better *answer*.
+  # It cannot yet: no generations are on disk. See results/eval-013-multihop.md.
+  hop_budget: 0
+  hop_depth: 2
 
 eval:
   buckets: ["temporal", "generated", "human"]

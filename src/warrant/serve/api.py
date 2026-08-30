@@ -377,6 +377,8 @@ class Runtime:
                         reranker_model=self.cfg.index.rerank.model,
                         sources=tuple(self.cfg.retrieve.sources) or None,
                         max_authority=self.cfg.retrieve.max_authority,
+                        max_document_frequency=(
+                            self.cfg.retrieve.max_document_frequency),
                     )
         return self._retriever
 

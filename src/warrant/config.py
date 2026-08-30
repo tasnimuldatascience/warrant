@@ -120,6 +120,18 @@ class RetrieveConfig(BaseModel):
     #: archival OCR is 5, so it reads as "no weaker than regulation".
     sources: list[str] = Field(default_factory=list)
     max_authority: int | None = None
+    #: Drop query terms appearing in more than this fraction of indexed documents. null
+    #: keeps every term, which is what every published number was measured under. Terms are
+    #: ORed, so one common word admits everything it appears in: a query MATCHes 88-90% of
+    #: the corpus at every size, and FTS5 has no top-k pruning, so it scores all of them.
+    max_document_frequency: float | None = None
+    #: Slots of final_k that reference-directed second-hop candidates may take. 0 disables
+    #: the hop. See results/eval-013: at 8/depth 3 the share of evidence sets carrying an
+    #: unsatisfied reference falls 70.8% -> 32.2% for -0.88 points of sufficiency (CI -2.09
+    #: to 0.00, 0 won / 3 lost) -- a benefit on an intermediate metric against a cost on the
+    #: outcome metric, so it is off until generated answers can settle it.
+    hop_budget: int = 0
+    hop_depth: int = 2
 
     @property
     def context_k(self) -> int:

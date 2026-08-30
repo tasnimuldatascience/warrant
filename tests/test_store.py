@@ -258,3 +258,24 @@ def test_uncovered_counts_chunks_the_dense_index_cannot_see():
 
         store.add([chunk("6304#d", "statute ingested later", "2020-01-01")])
         assert uncovered(index, store) == 1
+
+
+def test_document_frequency_comes_from_the_index_itself(store: Store):
+    """Read from FTS5's own vocabulary view rather than a term table written at index time.
+    A second source of truth for the same fact is the one that silently stops being true
+    after an ingest nobody re-ran the build step for."""
+    store.add([chunk("630.306#a", "the employee shall schedule annual leave", "2020-01-01"),
+               chunk("630.307#a", "the employee receives pay", "2020-01-01")])
+    df = store.document_frequency(["the", "employe", "annual"])
+    assert df["the"] == 2 and df["employe"] == 2 and df["annual"] == 1
+    assert store.indexed_documents() == 2
+
+
+def test_the_indexed_count_is_cached_but_not_stale(store: Store):
+    """COUNT(*) on an FTS5 table is a full index scan, and calling it per query to compute a
+    constant measured *slower* than the filter it feeds was saving. Cached against the write
+    counter, so an ingest still moves it."""
+    store.add([chunk("630.306#a", "text one", "2020-01-01")])
+    assert store.indexed_documents() == 1
+    store.add([chunk("630.307#a", "text two", "2020-01-01")])
+    assert store.indexed_documents() == 2, "the cache outlived the write that invalidated it"

@@ -163,26 +163,27 @@ def _is_successor(token: str, previous: str, kind: str) -> bool:
     return a is not None and b is not None and a == b + 1
 
 
-# How much each way of placing a designator costs. These are not thresholds anyone tuned to a
-# score; they are an ordering, and only the order matters. Continuing an open level and
-# opening the next one with its own first designator are what the CFR does by default and cost
-# nothing. Everything below them is an irregularity, and the ranking says which irregularity
-# is likelier: a chapeau that ran its first child into its own sentence (very common in eCFR)
-# beats an entire level going unwritten, which beats a designator missing from a level, which
-# beats a level numbered outside the CFR's cycle, which beats the same level restarting under
-# one parent. `_resolve` sums them over a whole section, so a locally attractive reading that
-# wrecks the next ten paragraphs loses to the one that does not.
+# How much each way of placing a designator costs. Not thresholds anyone tuned to a score --
+# only the order matters, and the order is a statement about which irregularities eCFR
+# actually contains. Continuing an open level and opening the next one with its own first
+# designator are what the CFR does by default and cost nothing. Below them: a chapeau that ran
+# its children into its own sentence is common and cheap; a designator missing from a level is
+# rarer, because a removed paragraph is normally left in place as "[Reserved]"; a level
+# numbered with something its parent does not call for is rarer still; and a level restarting
+# under one parent is a collision, which the CFR does not do on purpose. `_resolve` sums these
+# over a whole section, so a locally attractive reading that wrecks the next ten paragraphs
+# loses to the one that does not.
 _CONTINUE = 0
 _OPEN = 0
 _OPEN_INLINE = 2  # "(f) Open season. (1) ..." then a standalone "(2)"
 _IMPLIED = 2      # ... and then a standalone "(i)", with the whole of (1) still inline
                   # -- charged per level buried in the parent's sentence
+_ORPHAN = 2       # a level opening on the far side of an undesignated paragraph
 _SKIP = 5         # a gap in a level's numbering
 _OFF_CYCLE = 6    # a level numbered with something other than what its parent calls for
 _OFF_CYCLE_INLINE = 8
 _RESTART = 9      # a level starting over under the same parent: an address collision
 _DISPLACE = 12    # a designator no reading admits
-_ORPHAN = 2       # a level opening on the far side of an undesignated paragraph
 
 
 def _placements(stack: _Stack, token: str,
@@ -233,9 +234,9 @@ def _placements(stack: _Stack, token: str,
     # Subject to two exceptions ..." is followed by a standalone "(i)", and (e)(1) never gets
     # a <P> of its own. Filling it in is what makes 890.301#e-1-i the address a reader would
     # write. Two are allowed because §315.612(e) runs "(e) Proof of eligibility. (1)(i) Prior
-    # to appointment ..." and then a standalone "(A)", burying both (1) and (i). Only from a
-    # non-empty stack: with nothing above it a numbered top level -- which §550.1104 really
-    # has -- would be pushed under an invented "(a)".
+    # to appointment ..." and then a standalone "(A)", burying both (1) and (i). Never from an
+    # empty stack, where there is no parent whose sentence could have carried the missing
+    # level and a section opening at (1) would be filed under an invented "(a)".
     filled = stack
     kind = wanted
     for implied in (1, 2):
@@ -254,7 +255,7 @@ def _placements(stack: _Stack, token: str,
 #: How many readings of a section's numbering are carried forward at once. The ambiguity is
 #: local -- one or two designators deep -- so the beam converges early: over all 226 cached
 #: snapshots, widths 4, 8, 16 and 32 give byte-identical anchors and widths 2 and 3 do not.
-#: 8 is double the width that converged, and parsing the whole cache costs 10.9s against 6.2s
+#: 8 is double the width that converged, and parsing the whole cache costs 11.6s against 6.2s
 #: for the greedy push it replaces.
 _BEAM = 8
 
@@ -264,7 +265,7 @@ def _resolve(items: list[tuple[list[str] | None, str]]) -> list[str]:
 
     Paragraph by paragraph the numbering is ambiguous and no amount of care at one paragraph
     fixes it: after ``(h)(1)``, a ``(i)`` is equally the roman numeral opening (h)(1)(i) and
-    the letter opening a new top-level (i), and 5 CFR 890.301 contains both readings, four
+    the letter opening a new top-level (i), and 5 CFR 890.301 contains both readings, nine
     paragraphs apart. What distinguishes them is what comes next -- ``(ii)`` continues the
     roman run, ``(1)`` cannot follow a roman numeral without a level being skipped -- so the
     decision is deferred and settled by the cheapest reading of the whole sequence.

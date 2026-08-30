@@ -51,6 +51,7 @@ from .index.store import Store, now
 from .retrieve.dense import DenseIndex, uncovered
 from .retrieve.dense import build as build_dense
 from .retrieve.hybrid import Retriever
+from .retrieve.multihop import MultiHopRetriever
 from .sources.base import AUTHORITY_NAMES
 
 app = typer.Typer(add_completion=False, help=__doc__, no_args_is_help=True)
@@ -440,7 +441,13 @@ def _retriever(cfg: Config, store: Store, *, dense: bool = True, rerank: bool = 
         from sentence_transformers import CrossEncoder
 
         reranker = CrossEncoder(cfg.index.rerank.model)
-    return Retriever(
+    # The multi-hop subclass overrides only retrieve(), so eval, autopsy, replay and the API
+    # need no branch of their own -- the hop is a retriever that admits more, not a second
+    # pipeline they each have to know about.
+    cls = MultiHopRetriever if cfg.retrieve.hop_budget > 0 else Retriever
+    extra = ({"hop_budget": cfg.retrieve.hop_budget, "hop_depth": cfg.retrieve.hop_depth}
+             if cfg.retrieve.hop_budget > 0 else {})
+    return cls(
         store=store, dense_index=index, reranker=reranker,
         candidates_lexical=cfg.retrieve.candidates_lexical,
         candidates_dense=cfg.retrieve.candidates_dense,
@@ -449,6 +456,8 @@ def _retriever(cfg: Config, store: Store, *, dense: bool = True, rerank: bool = 
         config_hash=cfg.hash, reranker_model=cfg.index.rerank.model,
         sources=tuple(cfg.retrieve.sources) or None,
         max_authority=cfg.retrieve.max_authority,
+        max_document_frequency=cfg.retrieve.max_document_frequency,
+        **extra,
     )
 
 

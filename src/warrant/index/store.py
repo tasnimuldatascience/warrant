@@ -42,7 +42,7 @@ class SchemaMismatch(RuntimeError):
 #: much later inside a query with "no such column", naming neither the cause nor the cure.
 #: Worse are the silent drifts -- an edited FTS tokenizer or trigger body is simply never
 #: applied to an existing store, and the only symptom is a few points of retrieval quality.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 PRAGMA journal_mode = WAL;
@@ -116,6 +116,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(
     text, heading, context, version_id UNINDEXED,
     content='chunk', content_rowid='id', tokenize='porter unicode61'
 );
+
+-- Document frequency per term, maintained by FTS5 itself rather than by a build step that
+-- could go stale. `fts5vocab` is a view over the index that already exists: no rows are
+-- stored, nothing has to be recomputed after an ingest, and it cannot disagree with the
+-- index it reports on. The alternative -- a term->count table written at index time -- is a
+-- second source of truth for the same fact, and the one that silently stops being true.
+CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vocab USING fts5vocab(chunk_fts, 'row');
 
 CREATE TRIGGER IF NOT EXISTS chunk_ai AFTER INSERT ON chunk BEGIN
     INSERT INTO chunk_fts(rowid, text, heading, context, version_id)
@@ -252,6 +259,7 @@ class Store:
         #: once), and the serving path opens the store read-only.
         self._generation = 0
         self._admits: dict[tuple, tuple[int, set[int]]] = {}
+        self._indexed: tuple[int, int] = (-1, 0)
         if self._memory:
             self._shared = self._connect()
 
@@ -505,6 +513,41 @@ class Store:
             self._admits.clear()
         self._admits[key] = (self._generation, admitted)
         return admitted
+
+    def document_frequency(self, terms: Sequence[str]) -> dict[str, int]:
+        """How many indexed documents contain each term.
+
+        Read from FTS5's own vocabulary view, so it is the index's answer rather than a
+        second one kept beside it. Terms are looked up post-stemming: the index tokenises
+        with `porter`, so "scheduled" and "schedules" are one entry, and a caller passing
+        raw query words has to stem them the same way or it will find nothing and conclude
+        every term is rare.
+        """
+        if not terms:
+            return {}
+        marks = ",".join("?" * len(terms))
+        rows = self.db.execute(
+            f"SELECT term, doc FROM chunk_vocab WHERE term IN ({marks})", list(terms))
+        return {r["term"]: r["doc"] for r in rows}
+
+    def indexed_documents(self) -> int:
+        """Rows in the FTS index -- the denominator a document frequency is a fraction of.
+
+        Not the same as ``count()``: the FTS index holds every row ever inserted, including
+        superseded and retracted versions, because it indexes the table rather than the
+        believed slice of it. Dividing a df from this index by a count of in-force rows
+        would report frequencies above 1.
+
+        Cached against the write counter, like the admitted set. ``COUNT(*)`` on an FTS5
+        table is a full scan of the index, and calling it per query to compute a *constant*
+        was measured costing more than the filter it feeds was saving -- an optimisation
+        that was slower than doing nothing, which is the only kind worth catching early.
+        """
+        if self._indexed[0] == self._generation:
+            return self._indexed[1]
+        n = self.db.execute("SELECT COUNT(*) FROM chunk_fts").fetchone()[0]
+        self._indexed = (self._generation, n)
+        return n
 
     def rows_by_id(self, ids: Sequence[int]) -> dict[int, sqlite3.Row]:
         if not ids:

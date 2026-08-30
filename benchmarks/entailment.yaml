@@ -197,7 +197,7 @@
 
 - id: gen-17
   stratum: generator
-  evidence: '315.612#d-iii-4'
+  evidence: '315.612#d-4'
   as_of: '2024-02-28'
   label: entail
   question: military-spouse
@@ -948,7 +948,7 @@
 
 - id: gen-100
   stratum: generator
-  evidence: '315.612#d-iii-4'
+  evidence: '315.612#d-4'
   as_of: '2024-02-28'
   label: entail
   question: military-spouse-eligibility-2019

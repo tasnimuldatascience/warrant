@@ -36,14 +36,19 @@ and a second hop that filtered after ranking would be a fresh way to lose all of
 budget, and a visited set that carries every chunk id already present or already admitted.
 Regulations cite in loops -- §630.306(a) points at (b), and (b) points back -- and a cycle
 terminates on the visited set rather than on the depth cap: the target is already in the
-evidence set, so it is not dangling, so it is not followed. Depth 3 was measured before being
-claimed; see results/eval-013.
+evidence set, so it is not dangling, so it is not followed. The corpus is finite and each
+round admits only ids not already visited, so the walk halts with the cap removed.
 
 **Budget.** Hop-2 admissions do not extend ``final_k``, they compete for it. ``budget`` slots
 are taken from the tail of the first-hop ranking, and any the walk does not fill are handed
 straight back, so a query whose evidence set is already closed retrieves exactly what it
-retrieves today. Displacement is the cost, and eval-013 measures it against sufficiency on
-the held-out split rather than assuming it is small.
+retrieves today. Displacement is the cost, and results/eval-013 measures it rather than
+assuming it is small: on the held-out split the hop takes the share of evidence sets carrying
+an unsatisfied reference from **70.8% to 27.8%** for **-0.88 points of sufficiency (CI -2.09
+to 0.00, 0 items won, 3 lost, p = 0.25)** and +0.9 ms p50. Not distinguishable from zero, and
+never once positive -- the benefit is measured on an intermediate metric and the cost on the
+outcome metric, so ``hop_budget`` ships at 0 with the numbers beside it, the way
+``index.rerank`` and ``entail.enabled`` do.
 """
 
 from __future__ import annotations
@@ -434,8 +439,10 @@ class MultiHopRetriever(Retriever):
     #: Slots of ``final_k`` that reference-directed candidates may take. 0 disables the hop
     #: and makes this class byte-identical to ``Retriever``.
     hop_budget: int = 0
-    #: 1 = no expansion. 2 = one round from the first-hop set. See eval-013 for whether 3 buys
-    #: anything: on the held-out split it did not.
+    #: 1 = no expansion, 2 = one round from the first-hop set, 3 also follows what that round
+    #: admitted. Measured rather than guessed, and the guess was wrong: at budget 8, depth 3
+    #: takes the share of evidence sets carrying an unsatisfied reference from 42.7% to 32.2%
+    #: and depth 4 to 27.8%, all three at identical sufficiency and the same three lost items.
     hop_depth: int = 2
     _expander: ReferenceExpander | None = field(default=None, init=False, repr=False)
 
