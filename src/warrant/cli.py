@@ -215,7 +215,7 @@ def corpus_diff(config: ConfigOpt = None,
 
 
 def _retriever(cfg: Config, store: Store, *, dense: bool = True, rerank: bool = True,
-               temporal: bool = True) -> Retriever:
+               temporal: bool = True) -> Retriever:  # noqa: D401
     index = None
     if dense and cfg.index.dense.enabled and DenseIndex.exists(cfg.dense_path):
         index = DenseIndex.load(cfg.dense_path)
@@ -266,7 +266,8 @@ def eval_run(config: ConfigOpt = None,
             f"{k} {len(v)}" for k, v in sorted(buckets.items())))
 
         table = Table(title="benchmark buckets", header_style="bold")
-        for col in ("bucket", "n", "sufficiency", "95% CI", "distractor", "95% CI"):
+        for col in ("bucket", "n", "sections", "sufficiency", "95% CI",
+                    "wrong-version", "95% CI"):
             table.add_column(col, justify="left" if col == "bucket" else "right")
         full = _retriever(cfg, store)
         for _name, items in sorted(buckets.items()):
@@ -287,6 +288,44 @@ def eval_run(config: ConfigOpt = None,
                                          samples=cfg.eval.bootstrap_samples)
                                   .row(label=f"{name} (scope off)"))
         console.print(table)
+        console.print("[dim]* enforced by construction: the distractor was never admitted "
+                      "by the predicates, so the rate restates the query rather than "
+                      "measuring the system. Intervals are a section-clustered bootstrap: "
+                      "items from one section are not independent trials.[/dim]")
+
+        if ablate and "temporal" in buckets:
+            _paired(cfg, store, buckets["temporal"])
+
+
+def _paired(cfg: Config, store: Store, items: list) -> None:
+    """Paired, section-clustered deltas for the comparisons the README makes.
+
+    Reading two marginal intervals for overlap throws away the pairing and is far less
+    sensitive; every configuration is scored on identical items, so only the items they
+    disagree on carry information.
+    """
+    from .eval.stats import paired_delta
+
+    base = _retriever(cfg, store)
+    variants = [
+        ("as-of predicate", _retriever(cfg, store, temporal=False)),
+        ("cross-encoder", _retriever(cfg, store, rerank=False)),
+    ]
+    a = score(base, items, samples=cfg.eval.bootstrap_samples)
+    keys = [r.section_id or r.item_id for r in a.results]
+    flags_a = [r.satisfied for r in a.results]
+
+    table = Table(title="paired deltas (section-clustered, same items)", header_style="bold")
+    for col in ("removing", "delta", "95% CI", "won", "lost", "p", "verdict"):
+        table.add_column(col, justify="left" if col == "removing" else "right")
+    for label, variant in variants:
+        b = score(variant, items, samples=cfg.eval.bootstrap_samples)
+        d = paired_delta(flags_a, [r.satisfied for r in b.results], keys,
+                         samples=cfg.eval.bootstrap_samples)
+        table.add_row(label, f"{d.delta * 100:+.1f}", str(d.ci), str(d.wins),
+                      str(d.losses), f"{d.p_value:.3g}",
+                      "carries its weight" if d.significant else "not measurable")
+    console.print(table)
 
 
 @autopsy_app.command("run")

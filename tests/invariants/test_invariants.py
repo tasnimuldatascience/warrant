@@ -170,3 +170,55 @@ def test_validity_intervals_do_not_overlap(store: Store):
             assert prior_to <= row["valid_from"], \
                 f"{row['chunk_id']} intervals overlap at {row['valid_from']}"
         previous[row["chunk_id"]] = row["valid_to"]
+
+
+# -- 6. the chunker captures the section it claims to have ingested ---------------
+
+
+CORPUS_COVERAGE_FLOOR = 0.95
+
+
+def test_chunking_captures_almost_all_of_each_section():
+    """The chunker must not silently drop body text.
+
+    This is the invariant the failure budget cannot provide. Its ``ingestion`` row asks
+    whether a gold chunk is in the store, and gold chunks are minted by the same parser --
+    so text the parser never emitted can never be missed, and the row reads zero no matter
+    how much was lost. Reading only ``<P>`` dropped 18,705 words (4.5% of the corpus),
+    including 88% of §532.313, and every instrument in the repository reported clean.
+    """
+    import glob
+    import re
+
+    from lxml import etree
+
+    from warrant.corpus.parse import parse_sections
+
+    files = sorted(glob.glob("data/ecfr/full-t5-p*.xml"), reverse=True)
+    if not files:
+        pytest.skip("no snapshots cached; run `make fetch`")
+
+    ws = re.compile(r"\s+")
+    seen: set[str] = set()
+    captured = missing = 0
+    for path in files:
+        part = path.split("-p")[1].split("-")[0]
+        if part in seen:
+            continue
+        seen.add(part)
+        raw = open(path, "rb").read()
+        sections = {s.identifier: s for s in parse_sections(raw)}
+        for div in etree.fromstring(raw).iter("DIV8"):
+            if div.get("TYPE") != "SECTION" or div.get("N") not in sections:
+                continue
+            got = sum(len(p.text.split()) for p in sections[div.get("N")].paragraphs)
+            total = len(ws.sub(" ", "".join(div.itertext())).split())
+            head = div.find("HEAD")
+            heading = len(ws.sub(" ", "".join(head.itertext())).split()) if head is not None else 0
+            captured += got
+            missing += max(total - got - heading, 0)
+
+    coverage = captured / (captured + missing)
+    assert coverage >= CORPUS_COVERAGE_FLOOR, (
+        f"chunker captured {coverage:.1%} of section body text "
+        f"({missing:,} words dropped); floor is {CORPUS_COVERAGE_FLOOR:.0%}")

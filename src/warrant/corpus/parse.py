@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 from lxml import etree
 
-from .apparatus import strip_apparatus, text_of
+from .apparatus import APPARATUS_TAGS, strip_apparatus, text_of
 
 #: Leading paragraph designator: (a), (a)(1), (b)(2)(i) ...
 _LABEL = re.compile(r"^\s*\(([a-zA-Z0-9]{1,4})\)((?:\s*\([a-zA-Z0-9]{1,4}\))*)")
@@ -117,6 +117,57 @@ def _push(stack: list[str], token: str) -> None:
     stack.append(token)
 
 
+#: Body elements that carry regulatory prose. ``P`` is the ordinary paragraph; the ``FP``
+#: family is a *flush paragraph* -- unindented continuation text, used for the closing
+#: sentence of a list and for the notes under a table. Reading only ``P`` silently dropped
+#: 18,705 words, 4.5% of the corpus, concentrated in the Federal Wage System parts the
+#: applicability story is built on: 88% of §532.313 and 46% of §531.214 were simply absent.
+#:
+#: That loss was invisible to the failure budget by construction. Its ``ingestion`` row asks
+#: whether a gold chunk is in the store, and gold chunks are minted by this same function --
+#: so text this parser never emitted could never be missed. A row that can only read zero is
+#: not measuring anything, which is why the coverage assertion in tests/invariants exists.
+_PROSE_TAGS = frozenset({"P", "FP", "FP-1", "FP-2", "FP1-2", "FP-DASH", "PSPACE"})
+_TABLE_TAGS = frozenset({"TABLE", "GPOTABLE"})
+
+
+def _table_text(node: etree._Element) -> str:
+    """Flatten a table to one line per row, cells separated by ' | '.
+
+    Serialised rather than skipped or split. A regulatory table is a single semantic unit --
+    a wage schedule, a step progression -- and splitting it per cell destroys the row
+    relationship that makes it answerable at all.
+    """
+    rows: list[str] = []
+    for tr in node.iter("TR"):
+        cells = [_WS.sub(" ", "".join(td.itertext())).strip()
+                 for td in tr.iter("TD", "TH", "ENT")]
+        cells = [c for c in cells if c]
+        if cells:
+            rows.append(" | ".join(cells))
+    if not rows:
+        rows = [_WS.sub(" ", "".join(node.itertext())).strip()]
+    return "\n".join(r for r in rows if r)
+
+
+def _body_elements(section: etree._Element):
+    """Prose and table elements in document order, without descending into them.
+
+    A plain ``iter("P")`` would miss flush paragraphs and tables; iterating several tags
+    naively would double-count the paragraphs nested inside an ``EXTRACT``. Walking and
+    pruning at each body element gives each piece of text exactly once.
+    """
+    stack = list(reversed(list(section)))
+    while stack:
+        el = stack.pop()
+        if el.tag in _PROSE_TAGS or el.tag in _TABLE_TAGS:
+            yield el
+            continue
+        if el.tag in ("HEAD", *APPARATUS_TAGS):
+            continue
+        stack.extend(reversed(list(el)))
+
+
 def _paragraphs(node: etree._Element) -> list[Paragraph]:
     """Paragraphs with hierarchical, section-unique anchors.
 
@@ -130,7 +181,21 @@ def _paragraphs(node: etree._Element) -> list[Paragraph]:
     out: list[Paragraph] = []
     stack: list[str] = []
     used: dict[str, int] = {}
-    for i, p in enumerate(node.iter("P"), start=1):
+    tables = 0
+    for i, p in enumerate(_body_elements(node), start=1):
+        if p.tag in _TABLE_TAGS:
+            text = _table_text(strip_apparatus(p))
+            if not text:
+                continue
+            tables += 1
+            anchor = f"t{tables}"
+            if anchor in used:
+                used[anchor] += 1
+                anchor = f"{anchor}.{used[anchor]}"
+            else:
+                used[anchor] = 1
+            out.append(Paragraph(anchor=anchor, text=text))
+            continue
         text = _WS.sub(" ", "".join(strip_apparatus(p).itertext())).strip()
         if not text:
             continue

@@ -21,7 +21,26 @@ is the part with novelty in it.
 
 ---
 
-## 1. Corpus
+## How to read this document
+
+Sections describe the design. Not all of the design is built, and a document that reads as
+present tense throughout is a document a reviewer cannot trust. Every section below is marked:
+
+| Marker | Meaning |
+|---|---|
+| **[built]** | in `src/`, covered by tests, and exercised by the published numbers |
+| **[partial]** | some of it exists; the section says exactly which part |
+| **[designed]** | decided and specified, no implementation yet; the phase table in section 12 says when |
+
+If a claim is unmarked, treat it as designed rather than built. An earlier revision of this
+document described query classification, parent expansion, context assembly, TREC pooling,
+three oracle interventions, two replay modes and admission control in the present
+indicative. None of those existed. That is a worse failure than any of them being missing,
+because it makes every other claim on the page unverifiable by inspection.
+
+---
+
+## 1. Corpus **[built]**
 
 Point-in-time US federal regulation from the [eCFR versioner
 API](https://www.ecfr.gov/developers/documentation/api/v1), Title 5 (Administrative Personnel),
@@ -51,7 +70,7 @@ Stated plainly here because it is easy to overclaim:
 
 ---
 
-## 2. Ingestion
+## 2. Ingestion **[built]**
 
 ### Editorial apparatus is the hard problem
 
@@ -125,7 +144,7 @@ centrepiece. Zero renumbering was found across all 26 parts.
 
 ---
 
-## 3. Scope and applicability — and what this is *not*
+## 3. Scope and applicability — and what this is *not* **[partial]**
 
 Warrant filters retrieval by **applicability**: which regulation governs this person, in this
 agency, in this role, on this date. Government-wide OPM rules apply to everyone; agency
@@ -145,7 +164,7 @@ ground truth.
 
 ---
 
-## 4. Bitemporal store
+## 4. Bitemporal store **[built]**
 
 Two independent time axes, because there are two independent questions.
 
@@ -173,24 +192,32 @@ hash, not replayed. Section 8 says what each replay mode therefore guarantees.
 
 ---
 
-## 5. Request path
+## 5. Request path **[partial]**
 
 ```
 query
-  -> query classification (semantic / structured / comparative / temporal)
-  -> scope resolution: (agency, role, pay system, bargaining unit, as_of date)
-  -> applicability + as-of predicate  ......... pushed into the retrieval query
-  -> BM25  ||  dense                  ......... run concurrently
-  -> reciprocal rank fusion
-  -> cross-encoder rerank
-  -> parent expansion + dedup
-  -> context assembly (token budget, table preservation)
-  -> generation
-  -> claim decomposition
-  -> evidence alignment
-  -> entailment + contradiction
-  -> calibrated confidence -> answer | qualified answer | abstain | flag conflict
+  -> scope resolution: (pay system, service)                      [built]
+  -> applicability + as-of predicate, pushed into the query       [built]
+  -> BM25  ||  dense                                              [built]
+  -> reciprocal rank fusion                                       [built]
+  -> cross-encoder rerank                                         [built]
+  -> context assembly (top context_k excerpts, numbered)          [partial]
+  -> generation -> claims + evidence ids                          [built]
+  -> deterministic span alignment                                 [built]
+  -> answer | abstain                                             [built]
+
+  -> query classification (semantic / structured / comparative)   [designed]
+  -> parent expansion + dedup                                     [designed]
+  -> token-budgeted assembly, table preservation                  [designed]
+  -> entailment + contradiction                                   [designed]
+  -> calibrated confidence -> qualified answer | flag conflict     [designed]
 ```
+
+**Scope facets are `pay_system` and `service` only.** Agency, role and bargaining unit are
+discussed in section 3 as the shape of the problem; `Scope.of` rejects them. Context assembly
+is a slice at `retrieve.context_k`, not a token budget: no tokenizer is consulted and no
+table logic exists, which is currently unfalsifiable because the corpus contains no
+`GPOTABLE` elements at all.
 
 ### Grounding
 
@@ -209,11 +236,16 @@ and degrade on long regulatory prose. Signals — lexical/semantic alignment, en
 contradiction, citation coverage — feed a **calibrated** combiner (logistic regression first;
 interpretable beats clever) fitted on a labeled dev set.
 
-Reported as calibration (Brier, ECE) and a **risk–coverage curve**, not as a threshold:
+Reported as calibration (Brier, ECE) and a **risk–coverage curve**, not as a threshold —
+the published form would read like this, with numbers this system has not yet measured:
 
-> at 90% coverage, error 2.8%; at 75% coverage, error 0.7%
+> at 90% coverage, error X%; at 75% coverage, error Y%
 
-That turns abstention into an engineering trade-off instead of a checkbox.
+That turns abstention into an engineering trade-off instead of a checkbox. **[designed]** —
+only `verify/align.py` exists today: a lexical-overlap span aligner. There is no entailment
+model, no contradiction detection, no combiner and no calibration. An earlier revision of
+this document carried illustrative figures in that blockquote, formatted exactly like a
+result, which is the single most misreadable thing a design document can do.
 
 ### Temporal conflict, expected and unexpected
 
@@ -223,7 +255,7 @@ The two cases are labeled separately; only the second enters the failure budget.
 
 ---
 
-## 6. Evaluation
+## 6. Evaluation **[partial]**
 
 Three buckets, **reported separately and never averaged into one number**:
 
@@ -260,18 +292,24 @@ A question does not have one gold chunk. It has a disjunction of sufficient sets
 Each set must be **minimal** — no proper subset is also sufficient — or supersets creep in and
 everything becomes "sufficient."
 
-Sets are discovered rather than enumerated up front, using **TREC-style pooling**: run diverse
-retrieval configurations, pool their unseen high-ranked evidence, judge it, and promote
-genuinely sufficient alternatives into the accepted sets. This carries pooling's known bias —
-systems outside the pool are penalized for finding valid unjudged evidence — and the bias is
-documented rather than hidden.
+Sets are to be discovered rather than enumerated up front, using **TREC-style pooling**: run
+diverse retrieval configurations, pool their unseen high-ranked evidence, judge it, and
+promote genuinely sufficient alternatives into the accepted sets. This carries pooling's
+known bias — systems outside the pool are penalized for finding valid unjudged evidence.
+
+**[designed].** No pooling is implemented. Every mined item carries exactly one evidence set
+of exactly one chunk; only `benchmarks/human.yaml` can express a disjunction, and those are
+hand-written. So for 809 of 851 non-human items the distinction below between *"did any
+sufficient set survive"* and *"was the gold chunk retrieved"* is currently a distinction
+without a difference, and the machinery is in place for when pooling lands rather than
+earning its keep today.
 
 The autopsy therefore asks *"did any sufficient set survive this stage?"*, never *"was the gold
 chunk retrieved?"*
 
 ---
 
-## 7. Failure localization
+## 7. Failure localization **[built]**
 
 ### Observational budget — every failure, cheap
 
@@ -291,11 +329,14 @@ retrieved "successfully" and blamed on generation.
 
 Replace one stage's output with an oracle and re-run:
 
-| Intervention | If the answer becomes correct |
-|---|---|
-| oracle evidence straight into context | fault is upstream of generation — not yet which stage |
-| oracle retrieval, original chunking downstream | retrieval implicated |
-| oracle chunking, original retrieval downstream | chunking implicated |
+| Intervention | If the answer becomes correct | Status |
+|---|---|---|
+| unbounded candidate depth, reranker off | evidence is reachable, so it was ranked too low | **[built]** |
+| oracle evidence straight into context | fault is upstream of generation | **[designed]** |
+| oracle chunking, original retrieval downstream | chunking implicated | **[designed]** |
+
+Only the first is implemented, and it is a depth sweep rather than an oracle substitution.
+It yields two labels, `ranking` and `unreachable`.
 
 This is **fault localization, not causal proof**. Oracle substitution shows that repairing a
 stage repairs the answer; it does not establish that the stage was the unique cause, and stage
@@ -344,7 +385,7 @@ fixed first is decided by the P0 measurement, not in advance.
 
 ---
 
-## 8. Replay
+## 8. Replay **[designed]**
 
 Two modes, two different guarantees.
 
@@ -363,7 +404,7 @@ to rebuild a historical vector index.
 
 ---
 
-## 9. Invariants
+## 9. Invariants **[built]**
 
 Deterministic assertions in CI — correctness moved out of probabilistic evaluation:
 
@@ -385,7 +426,7 @@ system is wrong* rather than *a test broke*.
 - Apparatus stripping is idempotent, and fixtures assert the known pointer forms are removed.
 - *(P1)* Every claim in an emitted answer carries at least one evidence ID.
 
-## 10. Load policy
+## 10. Load policy **[designed]**
 
 Under pressure, **admission control before degradation**. Shedding the verifier to save
 latency trades a slow answer for a wrong answer about someone's leave entitlement, which is the
