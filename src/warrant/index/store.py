@@ -42,7 +42,7 @@ class SchemaMismatch(RuntimeError):
 #: much later inside a query with "no such column", naming neither the cause nor the cure.
 #: Worse are the silent drifts -- an edited FTS tokenizer or trigger body is simply never
 #: applied to an existing store, and the only symptom is a few points of retrieval quality.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 PRAGMA journal_mode = WAL;
@@ -57,6 +57,24 @@ CREATE TABLE IF NOT EXISTS chunk (
     -- which is exactly what a corrected parse produces.
     version_id      TEXT    NOT NULL,
     chunk_id        TEXT    NOT NULL,   -- 630.1203#a, stable across versions
+
+    -- Multi-source provenance. Federal HR law is a hierarchy of documents, not one
+    -- document: a statute, the regulation implementing it, the notice explaining the
+    -- amendment, and the guidance interpreting it. Retrieval that mixes them without
+    -- recording which is which will cite a fact sheet over the law it summarises, and
+    -- nothing downstream can detect that. authority is an int because the ordering is the
+    -- semantics: 1 statute, 2 regulation, 3 notice, 4 guidance, 5 archival.
+    source          TEXT    NOT NULL DEFAULT 'ecfr',
+    doc_id          TEXT    NOT NULL DEFAULT '',
+    authority       INTEGER NOT NULL DEFAULT 2,
+    -- How the text was recovered: prose, table, heading, ocr, caption. A citation to OCR of
+    -- a scanned page is weaker evidence than one to parsed XML, and a verifier can only
+    -- weigh that if ingestion wrote it down.
+    kind            TEXT    NOT NULL DEFAULT 'prose',
+    locator         TEXT    NOT NULL DEFAULT '',
+
+    -- CFR-shaped fields. Non-CFR sources set section_id = doc_id so that every grouping,
+    -- clustering and invariant keyed on section_id keeps working unchanged across sources.
     section_id      TEXT    NOT NULL,   -- 630.1203
     title           INTEGER NOT NULL,
     part            TEXT    NOT NULL,
@@ -80,6 +98,8 @@ CREATE INDEX IF NOT EXISTS chunk_asof
 CREATE INDEX IF NOT EXISTS chunk_lookup ON chunk (chunk_id);
 CREATE INDEX IF NOT EXISTS chunk_version ON chunk (version_id);
 CREATE INDEX IF NOT EXISTS chunk_part   ON chunk (part, subpart);
+CREATE INDEX IF NOT EXISTS chunk_source ON chunk (source, authority);
+CREATE INDEX IF NOT EXISTS chunk_doc    ON chunk (doc_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(
     text, heading, version_id UNINDEXED,
@@ -128,6 +148,11 @@ class Chunk:
     anchor: str | None = None
     subpart: str | None = None
     heading: str | None = None
+    source: str = "ecfr"
+    doc_id: str = ""
+    authority: int = 2
+    kind: str = "prose"
+    locator: str = ""
     valid_from: str = "1970-01-01"
     valid_to: str | None = OPEN
     source_snapshot: str = ""
@@ -243,17 +268,19 @@ class Store:
         """Insert new chunk versions. Never updates the text of an existing row."""
         ts = system_from or now()
         rows = [
-            (c.version_id, c.chunk_id, c.section_id, c.title, c.part, c.subpart, c.anchor,
+            (c.version_id, c.chunk_id, c.source, c.doc_id or c.section_id, c.authority,
+             c.kind, c.locator, c.section_id, c.title, c.part, c.subpart, c.anchor,
              c.heading, c.text, content_hash(c.text), c.valid_from, c.valid_to, ts, None,
              c.source_snapshot, c.config_hash)
             for c in chunks
         ]
         with self.tx() as db:
             db.executemany(
-                "INSERT INTO chunk (version_id, chunk_id, section_id, title, part, subpart, "
-                "anchor, heading, text, content_hash, valid_from, valid_to, system_from, "
-                "system_to, source_snapshot, config_hash) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO chunk (version_id, chunk_id, source, doc_id, authority, kind, "
+                "locator, section_id, title, part, subpart, anchor, heading, text, "
+                "content_hash, valid_from, valid_to, system_from, system_to, "
+                "source_snapshot, config_hash) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 rows,
             )
         return len(rows)
