@@ -7,7 +7,7 @@
 model in the shipped path.
 
 Hallucination on the held-out human items is 1.5% and citation precision 98.5%
-([eval-004](../../results/eval-004-held-out.md)). Neither number can see the failure this
+([eval-004](eval-004-held-out.md)). Neither number can see the failure this
 document is about:
 
 > **Restored annual leave must be scheduled and used within 2 years.**
@@ -64,7 +64,8 @@ that stops at 5 CFR chapter I: 10.3% of in-force chunks cite the U.S.C., and no 
 retrieval tuning will satisfy those.
 
 The most-missed targets are not random. §630.1203(a) — the FMLA entitlement paragraph that
-half of subpart L hangs off — is referenced by 46 retrieved chunks that do not have it.
+much of subpart L hangs off — is named 46 times across the run by evidence sets that do not
+contain it; §315.201(c) 39 times, §315.612(b)(4)(iii) 34.
 
 ---
 
@@ -224,7 +225,7 @@ being read broadly, more broadly than the precision labels above.
 
 `if`/`when` was **not** added. Adding a trigger with a 13% base rate and no measured precision
 is exactly the untested expansion the corrected-statistics writeup was about
-([eval-003](../../results/eval-003-corrected-statistics.md)). It is the next measurement, not
+([eval-003](eval-003-corrected-statistics.md)). It is the next measurement, not
 this one.
 
 ---

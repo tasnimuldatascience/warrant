@@ -13,7 +13,7 @@ belongs to the abstention policy, and the text of the regulation belongs to the 
 verifier that silently dropped claims would be substituting a 184M-parameter model trained on
 newswire for 5 CFR, and it would do so with no record that it had.
 
-The measured reason for that caution is in `docs/results/eval-007-entailment.md`, and it is
+The measured reason for that caution is in `results/eval-007-entailment.md`, and it is
 not the reason that was expected. Domain shift does not show up as a collapsed headline: on
 129 pairs the generator actually emitted against 5 CFR, the model is right 86.8% of the time,
 a few points under its published MNLI score. It shows up in the class breakdown. Those 129

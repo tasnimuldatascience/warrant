@@ -21,7 +21,7 @@ treated as finished.
 
 | Module | What is missing |
 |---|---|
-| `verify/abstain.py` | no `tests/test_abstain.py`, no `docs/results/eval-005-abstention.md`. The risk–coverage curve and ECE were never measured. |
+| `verify/abstain.py` | no `tests/test_abstain.py`, no `results/eval-005-abstention.md`. The risk–coverage curve and ECE were never measured. |
 | `verify/calibrate.py` | same commission; untested. |
 | `verify/entail.py` | no tests, no `eval-007`. The domain-shift measurement (MNLI → regulatory prose) is the whole point and has not been run. |
 | `verify/xref.py` | no tests; the dangling-reference rate was never measured. |

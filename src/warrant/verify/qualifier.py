@@ -75,8 +75,9 @@ _INNER_COMMA = re.compile(r",\s*(?:\(|and\b|or\b|\d{3}\.)")
 _SENTENCE_START = re.compile(r"(?:^|[.;:]\s+|^\s*\([A-Za-z0-9]{1,4}\)\s*)$")
 
 _TRIGGERS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    # "excepted service" and "exception" are not exceptions; \b on the bare word is enough,
-    # and was checked against all 504 chunks containing the string.
+    # "excepted service" is a category of appointment, not an exception. The word boundary is
+    # enough: 126 chunks contain "excepted" and the trigger fires on exactly the 504 that
+    # contain "except".
     ("except", re.compile(r"\bexcept\b", re.IGNORECASE)),
     ("unless", re.compile(r"\bunless\b", re.IGNORECASE)),
     ("notwithstanding", re.compile(r"\bnotwithstanding\b", re.IGNORECASE)),
@@ -101,7 +102,7 @@ _TRIGGERS: tuple[tuple[str, re.Pattern[str]], ...] = (
 _BOUND = re.compile(
     r"^(?:may|shall|must|will|can)\s+not\s+"
     r"(?:be\s+)?(?:exceeds?\b|be\s+(?:less|more|greater|earlier|later|higher|lower)\b|"
-    r"cause\b[^.;]{0,80}?\bto\s+exceed\b|result\b[^.;]{0,80}?\bexceed)",
+    r"cause\b[^.;]{0,80}?\bto\s+exceed\b)",
     re.IGNORECASE)
 
 #: "at a time other than the end of the contract year" and "in other than the full fraction"
@@ -114,7 +115,9 @@ _OTHER_THAN_MANNER = re.compile(
 
 #: A lead-in paragraph governing an enumerated list. eCFR renders the em dash of "is provided
 #: without loss of--" as an em dash or a hyphen depending on the snapshot, so both are
-#: accepted; a colon is the commoner form. 8.0% of in-force chunks end this way.
+#: accepted; a colon is the commoner form and accounts for 8.0% of in-force chunks on its own.
+#: The colon is not sufficient by itself -- 300.201(a) ends in one and enumerates inline, so
+#: nothing hangs off it in the store and there is no chapeau relationship to report.
 _CHAPEAU_END = re.compile(r"[:—–]\s*$|\-\-\s*$")
 
 
