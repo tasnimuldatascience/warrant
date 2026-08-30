@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-22863a)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.12%20|%203.13-3776ab?logo=python&logoColor=white)](pyproject.toml)
-[![tests](https://img.shields.io/badge/tests-0%20passing-22863a)](tests/)
+[![tests](https://img.shields.io/badge/tests-105%20passing-22863a)](tests/)
 [![corpus](https://img.shields.io/badge/corpus-12,858%20chunk%20versions%20|%2026%20CFR%20parts-5b8cff)](results/spike-001-amendment-viability.md)
 
 </div>
