@@ -22,7 +22,7 @@ exposed": a bound applied at one stage is a bug fix, a bound applied at the door
 guarantee, and the resource this system is actually short of is not milliseconds of FTS5.
 
 **It is the generation slot.** A degenerate query that gets past the door takes a serialised
-19.7 s slot out of a ceiling of three requests per minute. Refusing it costs 23 µs. Every
+6.6 s slot out of a ceiling of 7.7 requests per minute. Refusing it costs 23 µs. Every
 input rule below is priced that way — not in the FTS5 time it saves, but in the share of the
 service's entire capacity it stops one nonsense request from consuming.
 
@@ -33,7 +33,7 @@ Four things are enforced, in the order a request meets them:
     3. admission    per-client token bucket, and a per-request cost bound
     4. output       every claim cites evidence; every citation was retrieved and is in force
 
-The SLO being defended is the one the whole service is pinned to: **generation runs at 21.3
+The SLO being defended is the one the whole service is pinned to: **generation runs at 29.2
 tok/s unbatched, about three requests per minute**. Retrieval is not the constraint — 18.4 ms
 p50. So the limiter's job is not fairness (a semaphore in `api` already bounds concurrency);
 it is to make over-ceiling load cost a dict lookup instead of a 20-second queued thread.
@@ -78,7 +78,7 @@ MIN_QUERY_CHARS = 2
 #: benchmark question is 15 tokens, so nothing a person writes reaches this floor. Inside the
 #: character cap the cost of serving one of these is modest -- 85 repeats scan in 44.4 ms
 #: against 21.1 ms for a real question -- so this rule is not paying for FTS5 time. It is
-#: paying for the 19.7 s generation slot the request would go on to occupy.
+#: paying for the 6.6 s generation slot the request would go on to occupy.
 REPETITION_TOKEN_FLOOR = 24
 #: distinct/total below this is not a question. The *tightest* benchmark question sits at
 #: 0.833 — "How long can a term appointment last?" — so the margin is 3.3x, and 0 of 56
@@ -270,7 +270,11 @@ MAX_EXCERPT_CHARS = 8_000
 #: 16 x 7,948 = 127,168, and attention is quadratic in what it is given.
 MAX_PROMPT_CHARS = 24_000
 #: Generation throughput, measured unbatched. The number this entire service is pinned to.
-GENERATION_TOK_PER_S = 21.3
+#: Measured in isolation at 29.2-29.9 tok/s. The 21.3 this constant used to hold came from a
+#: 32-token generation, where prefill dominates decode and the rate reads low; every figure
+#: derived from it -- 19.7 s an answer, three requests a minute -- was wrong in the same
+#: direction. results/eval-010-capacity.md.
+GENERATION_TOK_PER_S = 29.2
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,7 +292,12 @@ class Cost:
 
     @property
     def decode_s(self) -> float:
-        """Seconds of decode at the measured ceiling. 420 tokens at 21.3 tok/s = 19.7 s."""
+        """Seconds of decode at the measured ceiling. 420 tokens at 29.2 tok/s = 14.4 s.
+
+        The cap, not the expectation: answers actually run ~205 tokens, so a typical decode is
+        6.6 s. Bounding on the cap is deliberate -- a cost bound that assumes the average is a
+        bound that fails on exactly the requests worth bounding.
+        """
         return self.max_new_tokens / GENERATION_TOK_PER_S
 
     def check(self, deadline_s: float) -> None:

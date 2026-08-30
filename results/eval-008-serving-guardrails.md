@@ -1,5 +1,12 @@
 # Eval 008 — serving guardrails: what the API refuses, and what each refusal costs
 
+> **Superseded serving figures.** This report quotes 21.3 tok/s and a 3-per-minute
+> ceiling. Both are wrong: an isolated re-derivation measured 29.2–29.9 tok/s over
+> ~205 output tokens, so an answer is 6.6 s and the ceiling is 7.7 req/min. The text
+> below is left as it was written, because a results doc is a record of what was
+> measured on a day, and editing it to agree with a later number falsifies that
+> record. See [eval-010](eval-010-capacity.md).
+
 **Date:** 2026-08-30
 **Reproduce:** `make build`, then the snippet under [Reproducing](#reproducing).
 **Code:** `src/warrant/serve/guard.py`, `tests/test_guard.py` — 62 tests, 99% line coverage of

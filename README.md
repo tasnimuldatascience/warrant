@@ -95,9 +95,17 @@ reciprocal rank fusion does not care which list finished first. The admitted set
 being rebuilt per query, 9.7 ms spent recomputing an identical 9,627-element set; it is now
 cached against a counter every write bumps, so a retraction invalidates it immediately.
 
-Generation is a different order: 21.3 tokens/s unbatched, so the serving ceiling is **three
-requests per minute**. The API admits under a semaphore and returns 503 with `Retry-After`
-rather than queueing silently for 33 minutes.
+Generation is a different order: **29.2–29.9 tokens/s** unbatched over ~205 output tokens, so
+a full answer is **6.6 s** and the measured ceiling is **7.7 requests per minute** (6.7–9.4),
+with a stable band at 6. The API admits under a semaphore and returns 503 with `Retry-After`.
+
+Those three numbers replace 21.3 tok/s / 19.7 s / 3 per minute, which this README carried
+until a load test re-derived them in isolation. The old throughput was measured at a token
+count small enough for prefill to dominate, and the old answer length was 2× the real one —
+two errors compounding in the same direction. [eval-010](results/eval-010-capacity.md) has
+the derivation. Admission control also does **not** yet refuse before latency degrades: a
+503's floor is 20.1 s and at 3× load its p50 is 65 s, because the real queue is the
+unbounded thread pool in front of the semaphore, not the semaphore.
 
 ## The failure budget
 

@@ -39,8 +39,11 @@ from dataclasses import dataclass, field
 LATENCY_BUCKETS_MS: tuple[float, ...] = (
     1, 2.5, 5, 10, 20, 25, 40, 60, 100, 150, 250, 500, 1000, 2500, 5000,
 )
-#: Generation is serialised at a measured 21.3 tok/s, so a 400-token answer is ~19s and the
-#: queue in front of it dominates. Buckets run to five minutes because the deadline does.
+#: Generation is serialised at a measured 29.2-29.9 tok/s over ~205 output tokens, so a
+#: typical answer is 6.6s and the queue in front of it dominates. Buckets stay dense below
+#: 10s where answers land and run to five minutes because the deadline does -- and because
+#: overload was measured putting a 503's own p50 at 65s, which a bucket set ending at the
+#: happy path would report as a single saturated +Inf.
 GENERATE_BUCKETS_S: tuple[float, ...] = (1, 2.5, 5, 10, 20, 30, 45, 60, 90, 120, 300)
 
 

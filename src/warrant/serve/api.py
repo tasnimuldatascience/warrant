@@ -22,7 +22,7 @@ Both throughput limits are enforced here rather than hoped for, because both wer
 and neither is fixable by asking politely:
 
     retrieval    peaks at 4 threads (66 QPS) and *falls* to 25.6 QPS at 16 -- THREAD_LIMIT
-    generation   21.3 tok/s unbatched, 0.051 req/s -- _GENERATION_SLOT
+    generation   29.2 tok/s unbatched, 0.128 req/s -- _GENERATION_SLOT
 
 Every response is a declared model. Annotating handlers ``-> dict`` documented every endpoint
 in OpenAPI as ``{"type": "object", "additionalProperties": true}``: no client could be
@@ -78,8 +78,16 @@ UI_DIR = Path(__file__).resolve().parents[3] / "ui" / "dist"
 #: the rest wait is both faster and honest about the queue.
 THREAD_LIMIT = 4
 
-#: One generation at a time. Measured ceiling is 21.3 tok/s unbatched, and a 420-token answer
-#: is therefore ~19.7 s, i.e. 0.051 req/s. 100 concurrent requests took ~33 minutes to drain
+#: One generation at a time. Measured ceiling is 29.2-29.9 tok/s unbatched over ~205 output
+#: tokens, so an answer is 6.6 s and the server sustains 7.7 req/min (stable band 6). An
+#: earlier comment here said 21.3 tok/s and 19.7 s per answer; both were wrong, in the same
+#: direction -- throughput was read off a 32-token generation where prefill dominates, and the
+#: answer length was taken as the 420-token cap rather than the ~205 actually produced.
+#: results/eval-010-capacity.md re-derives all three in isolation.
+#:
+#: The semaphore is still the right shape and is still not sufficient: `/api/ask` is a sync
+#: endpoint, so the queue that actually forms is the unbounded, untimed thread pool in *front*
+#: of this, and a 503's floor is 20.1 s. 100 concurrent requests took ~33 minutes to drain
 #: and past ~35 in flight the GPU OOMs, so the queue is bounded and over-capacity load is
 #: refused with 503 + Retry-After rather than accepted and abandoned 20 minutes later. This
 #: does not raise the ceiling -- nothing here can -- it makes the ceiling visible to callers.
@@ -88,7 +96,8 @@ _GENERATION_SLOT = threading.Semaphore(1)
 GENERATE_QUEUE_WAIT_S = 20.0
 #: Total budget for one request's generation, queue time included.
 GENERATE_DEADLINE_S = 90.0
-#: 420 max_new_tokens at 21.3 tok/s = 19.7 s for one attempt, and `Generator.answer` retries
+#: 420 max_new_tokens at 29.2 tok/s = 14.4 s for one attempt at the cap, and
+#: `Generator.answer` retries
 #: an unparseable response once. Starting a generation with less budget than this burns the
 #: GPU on an answer whose deadline has already expired, so it is refused at the door instead.
 GENERATE_FLOOR_S = 40.0
@@ -451,8 +460,8 @@ def _generate_answer(rt: Runtime, question: str, excerpts: list[tuple[str, str, 
                      as_of: str, scope: str):
     """Run one generation, or refuse honestly if the queue is already full.
 
-    Generation is serialised (`_GENERATION_SLOT`) because the measured ceiling is 21.3 tok/s
-    unbatched -- 0.051 req/s -- and nothing in this module can raise it. What it can do is
+    Generation is serialised (`_GENERATION_SLOT`) because the measured ceiling is 29.2 tok/s
+    unbatched -- 7.7 req/min -- and nothing in this module can raise it. What it can do is
     stop pretending: without the semaphore, 100 concurrent requests drained in ~33 minutes
     and the GPU OOM'd past ~35 in flight, so callers got a timeout, a truncated stream or a
     500, all of which read as "broken" rather than "at capacity".
@@ -861,7 +870,7 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
                     return
 
                 yield _sse("status", {"stage": "generating",
-                                      "note": "one at a time; measured 21.3 tok/s"})
+                                      "note": "one at a time; measured 29.2 tok/s"})
                 prompt = guard.bound_excerpts(excerpts_for(rt.store, trace))
                 prompt.cost().check(GENERATE_DEADLINE_S)
                 answer = await anyio.to_thread.run_sync(

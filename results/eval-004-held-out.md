@@ -1,5 +1,12 @@
 # Eval 004 — held-out results, and the generator measured
 
+> **Superseded serving figures.** This report quotes 21.3 tok/s and a 3-per-minute
+> ceiling. Both are wrong: an isolated re-derivation measured 29.2–29.9 tok/s over
+> ~205 output tokens, so an answer is 6.6 s and the ceiling is 7.7 req/min. The text
+> below is left as it was written, because a results doc is a record of what was
+> measured on a day, and editing it to agree with a later number falsifies that
+> record. See [eval-010](eval-010-capacity.md).
+
 **Date:** 2026-08-30
 **Supersedes:** the bucket numbers in [eval-002](eval-002-failure-budget.md) and
 [eval-003](eval-003-corrected-statistics.md). The mechanisms in both stand; the numbers moved

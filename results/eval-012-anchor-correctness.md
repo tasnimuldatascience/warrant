@@ -3,9 +3,9 @@
 **Date:** 2026-08-30
 **Module:** `src/warrant/corpus/parse.py` (designator stack rewritten)
 **Reproduce:** offline, against the cached snapshots in `data/ecfr/`. `python -m pytest
-tests/test_parse.py` runs both instruments over the whole cache as gates; the two scripts
-that produced the tables are described under [How each number was
-produced](#how-each-number-was-produced). No network, no model, no paid API.
+tests/test_parse.py` runs both instruments over the whole cache as gates; the method behind
+each table is under [How each number was produced](#how-each-number-was-produced). No network,
+no model, no paid API.
 
 Every citation in this system is an evidence id. `ARCHITECTURE.md` §5 explains why the
 generator is not asked for character offsets, and that choice only pays if the ids are right.
@@ -39,19 +39,23 @@ first level the token continued and taking it, which loses at the first ambiguit
 ```
 
 The top level was lost at (h)(1) and never recovered, so the last seven subsections of a
-52-paragraph FEHB section were addressed as children of a roman numeral four levels down.
+52-paragraph FEHB section were filed two levels beneath a roman numeral that is not in the
+regulation at all.
 
 **eCFR gives no nesting to fall back on.** `sources/usc.py` found that where USLM expresses
 nesting, nesting outranks sequence continuity — its `_place` defers to the element tree and
 agreed with OLRC's own identifiers 20,217 times out of 20,217. eCFR is the opposite case, and
-this was checked rather than assumed: across all 226 cached snapshots there are 18,256 `<P>`
-elements under a `DIV8` section and **18,220 of them are direct children**, the other 36 being
-paragraphs inside an `EXTRACT`. No element carries a designator, a level, or a path. The
-hierarchy exists only in the designators themselves, so it has to be inferred, and the only
-question is how well.
+this was checked rather than assumed: across all 226 cached snapshots there are 122,467 `<P>`
+elements inside a `DIV8` section and **122,273 of them — 99.84% — are direct children of it**.
+The 194 that are not sit inside an `EXTRACT` or a table cell, which is a quotation boundary
+and not a paragraph level. The only attributes any of them carry are `ecfr-split-paragraph`
+(7) and `class` (22); no element carries a designator, a level, or a path. The hierarchy
+exists only in the designators themselves, so it has to be inferred, and the only question is
+how well.
 
-Four more defects surfaced once there was an instrument pointed at the problem. All four
-produce the same pathology — an address that parses as a citation and is not one:
+That is the reported defect. Four more surfaced once there was an instrument pointed at the
+problem, and all five produce the same pathology — an address that parses as a citation and is
+not one:
 
 | | Defect | What it minted |
 |---|---|---|
@@ -65,10 +69,10 @@ produce the same pathology — an address that parses as a citation and is not o
 
 ## 2. The instruments
 
-The 1.26% in the bug report — anchors whose *root* is a roman numeral — is a lower bound and
-also produces false alarms: §330.609 and §330.707 have top-level subsections running past (u),
-so their genuine `#v` and `#x` are counted as roman by any such check. Two better instruments,
-both offline, both independent of the fix:
+The 1.26% in the bug report — anchors whose *root* is a roman numeral — is a lower bound, and
+a check of that shape also fires on addresses that are right: §330.609 and §330.707 number
+their subsections past (u), so `330.609#v` and `330.707#x` read as roman numerals and are
+letters. Two better instruments, both offline, both independent of the fix:
 
 **A. Structural well-formedness.** The CFR numbers its levels in a fixed chain: (a) holds (1)
 holds (i) holds (A), and below that (1) and (i) again. An anchor whose component *kinds*
@@ -118,8 +122,8 @@ All 226 cached snapshots, 16,024 section-versions:
 | do not resolve | **1,523 (8.7%)** | **868 (5.0%)** |
 
 **So the true error rate was 6.07% of in-force anchors, not 1.26%** — five times the crude
-count, and the crude count also included four anchors that were right. Instrument A now reads
-zero and is kept as a test, so it reads zero by assertion rather than by luck.
+count, and part of the crude count was not error at all. Instrument A now reads zero and is
+kept as a test, so it reads zero by assertion rather than by luck.
 
 Two hand-checked sections, against the printed regulation:
 
@@ -219,10 +223,10 @@ Distinct chunk ids: **851 disappear, 858 appear.** By shape, in force:
 | 20 | same depth, different address |
 
 A rebuild into a scratch store — a session scratchpad path, never `data/warrant.sqlite3` —
-completes offline and clean, twice, byte-identically: 13,212 chunk versions over 26 parts and
-81 distinct snapshots. **No anchor in the corpus needs
-the collision suffix** — `550.703#a` matched four paragraphs before designators were tracked at
-all, and over all 127,402 anchors the `.2` backstop stays unused, which a test now asserts.
+completes offline and clean, twice, with the same result: 13,212 chunk versions over 26 parts
+and 81 distinct snapshots. **No anchor in the corpus needs the collision suffix.** `550.703#a`
+matched four paragraphs before designators were tracked at all; over all 127,402 anchors the
+`.2` backstop now stays unused, which a test asserts.
 
 ### Recorded artifacts that go stale
 
@@ -232,8 +236,8 @@ already stale rather than prospectively stale. None of it was re-recorded here.
 
 | Artifact | What is stale |
 |---|---|
-| **`benchmarks/entailment.yaml`** | pair `gen-17` cites `315.612#d-iii-4`, which no longer exists. It is paragraph (4) of §315.612(d) and its address is now **`315.612#d-4`**; the claim text matches that paragraph unchanged. This is currently a **failing test** — `tests/test_entailment_bench.py::test_the_shipped_benchmark_is_the_probe_set_eval_007_reports` — and the file belongs to whoever owns `verify/entail.py`, so it is left for them. |
-| **`results/eval-007-entailment.md`** | quotes the same id. |
+| `benchmarks/entailment.yaml` | pair `gen-17` cited `315.612#d-iii-4`, which the rebuild renamed to `315.612#d-4` — the same paragraph, same claim text. `tests/test_entailment_bench.py` caught it, which is the behaviour that test was written for, and its owner re-anchored the pair while this was being measured. **Already fixed; listed because it is the shape of what else will break.** |
+| **`results/eval-007-entailment.md`** | still quotes `315.612#d-iii-4` in two adjudication rows. |
 | **`results/eval-006-unstated-conditions.md`** | quotes 8 stale ids, including the two it correctly attributed to this parser. §4's resolution table (94.7% exact, 4.6% ancestor) was measured *against these anchors* and has to be re-measured; it should improve, since two of the four defects it lists as chunker artefacts are now fixed at the source. |
 | **`results/eval-floor.json`** | the recorded quality floor is a bootstrap lower bound over mined items whose evidence ids come from the store. The item sets change, so the floor is not comparable across the rebuild and must be re-recorded before `make gate` means anything. |
 | **`results/failure-budget.json`** and `results/eval-002` | same reason: every row is keyed on evidence ids. |
@@ -251,7 +255,7 @@ to it. That file is not this change's to edit.
 
 | § | what | how |
 |---|---|---|
-| 1 | eCFR carries no paragraph nesting | walk every `DIV8[@TYPE="SECTION"]` in the 226 cached snapshots, count `P` elements by depth below the section |
+| 1 | eCFR carries no paragraph nesting | every `DIV8[@TYPE="SECTION"]` in the 226 cached snapshots; `P` elements counted by depth below the section, and their attribute names tallied |
 | 2, 3 | instrument A | every anchor's components classified by kind; an anchor passes if some contiguous walk of (a)→(1)→(i)→(A)→(1)→(i) admits all of them. Positional fallbacks (`p3`, `t1`) are not charged |
 | 2, 3 | instrument B | `paragraphs? … of this section` spans over each section's own text, elisions expanded, matched against that section's anchor set and its prefixes |
 | 3 | hand check | §890.301 and §630.1503 read against the eCFR text of the 2026-08-26 snapshot |

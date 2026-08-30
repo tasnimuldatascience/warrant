@@ -455,8 +455,9 @@ now produces the frontier to decide from. Measured on the temporal bucket: lexic
 cross-encoder is a sheddable stage and the as-of predicate — which the paired test shows moves
 the wrong-version rate by 96 points — is not.
 
-Admission control is **[built]** for generation, which is where the real ceiling is: 21.3
-tokens/s unbatched is roughly three requests per minute, so the API admits under a semaphore
+Admission control is **[partial]** for generation, which is where the real ceiling is: 29.2
+tokens/s unbatched over ~205 tokens is 7.7 requests per minute, so the API admits under a
+semaphore
 and returns `503` with `Retry-After` rather than queueing a client for the 33 minutes that 100
 concurrent requests would actually take. What is still **[designed]**: shedding individual
 retrieval stages under load, and a load test that produces the condition rather than reasoning

@@ -42,4 +42,4 @@ predicates          9.74ms  →   0.02ms
 lexical + dense    31.14ms  →  18.39ms   (concurrent, not sequential)
 ```
 
-Retrieval is not the bottleneck. Generation at 21.3 tok/s → ~3 requests/minute is.
+Retrieval is not the bottleneck. Generation is: 29.2–29.9 tok/s over ~205 tokens, 6.6 s an answer, 7.7 req/min measured (stable band 6). The 21.3 / 19.7 s / 3-per-minute figures this file used to carry were wrong in both factors -- see results/eval-010.

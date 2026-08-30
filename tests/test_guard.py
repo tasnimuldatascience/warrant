@@ -384,12 +384,21 @@ class Clock:
         self.t += seconds
 
 
-def test_the_answer_bucket_is_the_measured_serving_ceiling():
-    """21.3 tok/s unbatched is 0.051 req/s is 3.06 requests a minute. The limit is that
-    number and not a round one, so a client inside the ceiling is never refused."""
-    assert guard.ANSWER_RATE_PER_S * 60 == pytest.approx(3.0)
-    assert guard.GENERATION_TOK_PER_S == 21.3
-    assert Cost(excerpts=16, prompt_chars=9306).decode_s == pytest.approx(19.72, abs=0.01)
+def test_the_answer_bucket_is_derived_from_the_measured_throughput():
+    """The per-client limit is derived, not chosen, so it moves when the measurement moves.
+
+    It moved once already: this test pinned 21.3 tok/s and a 3-per-minute ceiling, both of
+    which a later isolated re-derivation showed to be wrong -- throughput read off a
+    32-token generation where prefill dominates, against a real 29.2-29.9 tok/s. Pinning the
+    constant is what made the correction visible here instead of silent.
+
+    The client limit stays deliberately below the *server* ceiling of 7.7 req/min: one
+    client is not entitled to the whole instance. See results/eval-010-capacity.md."""
+    assert guard.GENERATION_TOK_PER_S == pytest.approx(29.2)
+    assert guard.ANSWER_RATE_PER_S * 60 < 7.7, "one client may not take the whole server"
+    # 420 max_new_tokens is the cap, not the expectation: answers run ~205 tokens. Bounding
+    # on the average would fail on exactly the requests worth bounding.
+    assert Cost(excerpts=16, prompt_chars=9306).decode_s == pytest.approx(14.38, abs=0.05)
 
 
 def test_a_client_gets_its_burst_then_waits_for_the_ceiling():
@@ -774,7 +783,7 @@ def test_the_prompt_reports_the_cost_it_would_incur():
     prompt = bound_excerpts([(c.version_id, c.heading or "", c.text) for c in CORPUS])
     cost = prompt.cost()
     assert cost.excerpts == 3 and cost.prompt_chars == prompt.chars
-    assert cost.decode_s == pytest.approx(19.72, abs=0.01)
+    assert cost.decode_s == pytest.approx(14.38, abs=0.05)
 
 
 def test_the_error_handler_re_raises_what_is_not_its_business():
