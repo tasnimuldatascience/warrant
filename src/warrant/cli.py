@@ -873,7 +873,10 @@ def serve(config: ConfigOpt = None,
           port: Annotated[int, typer.Option(help="port")] = 8000,
           generate: Annotated[bool, typer.Option(help="load the generator")] = True,
           warm: Annotated[bool, typer.Option(
-              help="build models at startup rather than on first request")] = True) -> None:
+              help="build models at startup rather than on first request")] = True,
+          json_logs: Annotated[bool, typer.Option(
+              help="structured JSON logs; --no-json-logs for a readable terminal")] = True
+          ) -> None:
     """Run the HTTP API.
 
     Binds to localhost by default. The generation path is capped at roughly three requests
@@ -882,13 +885,19 @@ def serve(config: ConfigOpt = None,
     """
     import uvicorn
 
+    from .observe.logging import configure as configure_logging
     from .serve.api import create_app
+
+    # Before create_app, so the warm-up logs in the chosen format too. Configuring after it
+    # would leave exactly the startup lines -- the ones that say why a model failed to
+    # load -- in whatever format uvicorn had installed.
+    configure_logging(json_output=json_logs)
 
     cfg = Config.load(config)
     console.print(f"serving [bold]http://{host}:{port}[/bold] - corpus {cfg.store_path.name} "
                   f"- generation {'on' if generate else 'off'}")
     uvicorn.run(create_app(cfg, generate=generate, warm=warm), host=host, port=port,
-                log_level="info")
+                log_config=None)  # log_config=None: keep the handler configured above
 
 
 if __name__ == "__main__":

@@ -57,6 +57,8 @@ from pydantic import BaseModel, Field
 from ..config import Config
 from ..generate.answer import excerpts_for
 from ..index.store import Store
+from ..observe.logging import request_id as _request_id
+from ..observe.logging import trace_id as _trace_id
 from ..retrieve.dense import DenseIndex, uncovered
 from ..retrieve.hybrid import Retriever
 from ..retrieve.scope import PART_RESTRICTIONS, Scope
@@ -513,7 +515,17 @@ def _record(rt: Runtime, trace: Any, answer: Any = None) -> str | None:
                 "claims": [{"text": c.text, "evidence": list(c.evidence),
                             "grounded": c.grounded} for c in answer.claims],
             }
-        return traces.record(trace, answer=payload)
+        tid = traces.record(trace, answer=payload)
+        # Bound to the context so every line written after this point -- including ones
+        # from code that has never heard of the trace store -- carries the id a user can
+        # quote back. A request rejected before this point has a request id and no trace
+        # id, and that asymmetry is the difference between "we answered wrongly" and "we
+        # never got to answer".
+        _trace_id.set(tid or "")
+        log.info("recorded trace", extra={"stages": trace.stages_run,
+                                          "admitted": trace.admitted,
+                                          "total_ms": round(trace.timings.get("total", 0.0), 1)})
+        return tid
     except Exception:  # noqa: BLE001 - recording must never break serving
         log.exception("could not record trace")
         return None
@@ -589,7 +601,16 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
         than no id at all.
         """
         rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
-        response = await call_next(request)
+        # Set on the context, not passed down. Starlette copies the context into the thread
+        # it runs synchronous endpoints on, so a log line written inside retrieval carries
+        # the id without retrieval knowing an HTTP layer exists -- and, more to the point,
+        # without an error path having to remember to pass it.
+        token, trace_token = _request_id.set(rid), _trace_id.set("")
+        try:
+            response = await call_next(request)
+        finally:
+            _request_id.reset(token)
+            _trace_id.reset(trace_token)
         response.headers["X-Request-ID"] = rid
         return response
 
