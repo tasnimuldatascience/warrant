@@ -12,10 +12,15 @@ interval the reference run measured, so a passing build means "not distinguishab
 reference", and a failing one means the drop is larger than the sampling noise that produced
 the reference.
 
-**A floor is only comparable within one configuration.** The config hash is recorded with
-it, and a mismatch is reported as *incomparable* rather than as a pass or a fail. A gate
-that silently compares a reranked run against a lexical-only floor is worse than no gate: it
-passes exactly when the system got cheaper and worse.
+**A floor is only comparable within one configuration -- and configuration is not the same
+as what ran.** Both are recorded. The config hash catches a deliberate settings change; the
+*model set* catches the case the hash cannot see, which is the same config behaving
+differently because a component was unavailable. A CI runner with no torch runs the identical
+`configs/default.yaml` lexical-only, and its hash is identical, so the hash alone would have
+graded a lexical run against a reranked floor and reported a pass. Both are compared, and
+either mismatch is reported as *incomparable* rather than as a pass or a fail: a gate that
+silently compares across configurations is worse than no gate, because it passes exactly when
+the system got cheaper and worse.
 
 **One-sided, on purpose.** An improvement never fails the gate. It does print, loudly,
 because a recorded floor that nobody re-records goes stale, and the moment to re-record is
@@ -64,6 +69,11 @@ class Floor:
     split: str
     recorded_at: str
     buckets: list[BucketFloor] = field(default_factory=list)
+    #: What actually ran, from ``Retriever.model_names()`` -- absent components get no key
+    #: at all, so a lexical-only run is ``{}`` and is visibly not a reranked one. Recorded
+    #: because the config hash cannot distinguish them: the same file with torch missing
+    #: produces the same hash and a different system.
+    models: dict[str, str] = field(default_factory=dict)
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2, sort_keys=True) + "\n"
@@ -73,7 +83,10 @@ class Floor:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         return cls(config_hash=data["config_hash"], split=data["split"],
                    recorded_at=data["recorded_at"],
-                   buckets=[BucketFloor(**b) for b in data["buckets"]])
+                   buckets=[BucketFloor(**b) for b in data["buckets"]],
+                   # Default for floors recorded before models were tracked. They stay
+                   # loadable, and they compare only against another modelless run.
+                   models=data.get("models", {}))
 
 
 @dataclass(frozen=True)
@@ -100,7 +113,7 @@ class GateResult:
 
 
 def record(results: dict[str, Any], *, config_hash: str, split: str,
-           recorded_at: str) -> Floor:
+           recorded_at: str, models: dict[str, str] | None = None) -> Floor:
     """Turn a scored run into the floor a later run is held to.
 
     ``recorded_at`` is passed rather than read from the clock so the file is reproducible
@@ -123,10 +136,11 @@ def record(results: dict[str, Any], *, config_hash: str, split: str,
             distractors_reachable=reachable,
         ))
     return Floor(config_hash=config_hash, split=split, recorded_at=recorded_at,
-                 buckets=floors)
+                 buckets=floors, models=dict(models or {}))
 
 
-def check(floor: Floor, results: dict[str, Any], *, config_hash: str) -> GateResult:
+def check(floor: Floor, results: dict[str, Any], *, config_hash: str,
+          models: dict[str, str] | None = None) -> GateResult:
     """Compare a fresh run against a recorded floor.
 
     Improvements are collected but never fail. They are surfaced because a floor nobody
@@ -140,6 +154,17 @@ def check(floor: Floor, results: dict[str, Any], *, config_hash: str) -> GateRes
                     f"{config_hash}. Not comparable -- a gate that compares a reranked run "
                     "against a lexical-only floor passes exactly when the system got "
                     "cheaper and worse. Re-record with `warrant eval gate --record`."))
+
+    ran = dict(models or {})
+    if ran != floor.models:
+        missing = sorted(set(floor.models) - set(ran))
+        return GateResult(
+            ok=True, comparable=False,
+            detail=(f"floor was recorded with models {floor.models or '{}'}, this run has "
+                    f"{ran or '{}'}"
+                    + (f" -- {', '.join(missing)} did not load" if missing else "")
+                    + ". The config hash cannot see this: the same config file with torch "
+                    "unavailable hashes identically and is a different system."))
 
     violations: list[Violation] = []
     improvements: list[str] = []

@@ -50,3 +50,42 @@ jobs:
         with: {python-version: "3.12", cache: pip}
       - run: pip install -e ".[dev]"
       - run: pytest -q tests/invariants -m ""
+
+  gate:
+    # The quality floor, on a schedule and on demand -- deliberately not on every push.
+    #
+    # It needs a built corpus, and building one is ~10 minutes of eCFR fetching against a
+    # public API that owes this project nothing. Running that on every pull request would
+    # make the slowest, most rate-limited step the one that gates the fastest feedback, and
+    # would hammer a government endpoint for no added signal: the floor moves when retrieval
+    # changes, not when a docstring does.
+    #
+    # So the unit suite and the invariants guard every push, and this guards the numbers the
+    # README quotes. A regression caught within a day is caught; one nobody ever checks for
+    # is the actual failure mode, and that is what this closes.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -e ".[dev,serve]"
+      - name: Cache eCFR snapshots
+        # Snapshots are immutable point-in-time history, so the key needs no date: a hit is
+        # always valid and a miss only costs the fetch once. The index files that expire are
+        # governed by corpus.index_ttl_hours, not by this.
+        uses: actions/cache@v4
+        with:
+          path: data/ecfr
+          key: ecfr-${{ hashFiles('configs/default.yaml') }}
+      - run: make fetch
+      - run: make build
+      - name: Quality gate
+        # --lexical, against its own recorded floor. There is no torch on this runner, and
+        # the config hash cannot see that: the same configs/default.yaml with torch missing
+        # hashes identically and is a different system. So each floor also records the model
+        # set that produced it, and a mismatch reports *incomparable* rather than passing --
+        # otherwise this job would grade a lexical run against a reranked floor and call the
+        # cheaper, worse system green.
+        run: |
+          python -m warrant.cli eval gate -c configs/default.yaml --split test             --lexical --floor results/eval-floor-lexical.json

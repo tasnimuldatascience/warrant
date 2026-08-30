@@ -538,6 +538,11 @@ def eval_gate(config: ConfigOpt = None,
               split: Annotated[str, typer.Option(help="which split to gate on")] = "test",
               record: Annotated[bool, typer.Option(
                   help="overwrite the floor with this run instead of checking against it")]
+              = False,
+              floor: Annotated[Path | None, typer.Option(
+                  help="floor file; defaults to store.floor in the config")] = None,
+              lexical: Annotated[bool, typer.Option(
+                  help="score without dense or reranking, for a runner with no torch")]
               = False) -> None:
     """Fail if quality has regressed below the recorded floor.
 
@@ -550,22 +555,30 @@ def eval_gate(config: ConfigOpt = None,
     incomparable and is reported as such rather than as a pass.
     """
     cfg = Config.load(config)
-    path = cfg.floor_path
+    # A separate floor per *what ran*, not per config file. A runner with no torch scores the
+    # same config lexical-only, so it needs its own recorded numbers -- and the model set
+    # written into each floor is what stops the two being compared against each other.
+    path = floor or cfg.floor_path
     with Store(cfg.store_path) as store:
         buckets, horizon = _buckets(cfg, store)
         buckets = {k: [i for i in v if i.split == split] for k, v in buckets.items()}
         buckets = {k: v for k, v in buckets.items() if v}
-        retriever = _retriever(cfg, store)
+        retriever = _retriever(cfg, store, dense=not lexical, rerank=not lexical)
         results = {name: score(retriever, items, samples=cfg.eval.bootstrap_samples)
                    for name, items in sorted(buckets.items())}
+        # What ran, not what was configured. A runner with no torch loads the same config
+        # file lexical-only and hashes identically, so the hash alone would grade a lexical
+        # run against a reranked floor and call it a pass.
+        models = retriever.model_names()
 
     if record:
         floor = gate.record(results, config_hash=cfg.hash, split=split,
-                            recorded_at=now())
+                            recorded_at=now(), models=models)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(floor.to_json(), encoding="utf-8")
         console.print(f"recorded {len(floor.buckets)} bucket floors to [bold]{path}[/bold] "
-                      f"at config {cfg.hash}, horizon {horizon}")
+                      f"at config {cfg.hash}, horizon {horizon}, models "
+                      f"{floor.models or 'lexical only'}")
         for b in floor.buckets:
             lo = "n/a" if b.sufficiency_floor is None else f"{b.sufficiency_floor * 100:.1f}%"
             console.print(f"  {b.bucket:<18} n={b.n:<4} sufficiency floor {lo}")
@@ -576,7 +589,8 @@ def eval_gate(config: ConfigOpt = None,
                       "`warrant eval gate --record` on a run you are willing to defend.")
         raise typer.Exit(2)
 
-    result = gate.check(gate.Floor.load(path), results, config_hash=cfg.hash)
+    result = gate.check(gate.Floor.load(path), results, config_hash=cfg.hash,
+                        models=models)
     if not result.comparable:
         console.print(f"[yellow]incomparable[/yellow] {result.detail}")
         return

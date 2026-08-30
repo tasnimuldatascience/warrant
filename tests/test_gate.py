@@ -123,3 +123,36 @@ def test_the_floor_round_trips_through_json(tmp_path):
     path.write_text(floor.to_json(), encoding="utf-8")
     reloaded = Floor.load(path)
     assert reloaded == floor
+
+
+def test_the_same_config_running_without_torch_is_incomparable():
+    """The case the config hash cannot see. A CI runner with no torch loads the identical
+    configs/default.yaml, hashes identically, and runs lexical-only. Comparing that against
+    a reranked floor would report a pass on a system that got cheaper and worse -- which is
+    the exact failure the config-hash check exists to prevent, arriving through the one door
+    it does not cover."""
+    floor = record({"temporal": bucket()}, config_hash="cfg1", split="test",
+                   recorded_at=RECORDED,
+                   models={"dense": "bge-small", "rerank": "ms-marco"})
+    lexical = check(floor, {"temporal": bucket(sufficiency=0.10)},
+                    config_hash="cfg1", models={})
+    assert not lexical.comparable
+    assert lexical.violations == []
+    assert "dense" in lexical.detail and "rerank" in lexical.detail
+
+
+def test_a_matching_model_set_compares_normally():
+    models = {"dense": "bge-small"}
+    floor = record({"temporal": bucket()}, config_hash="cfg1", split="test",
+                   recorded_at=RECORDED, models=models)
+    assert check(floor, {"temporal": bucket(sufficiency=0.955)},
+                 config_hash="cfg1", models=models).ok
+
+
+def test_a_floor_recorded_before_models_were_tracked_still_loads(tmp_path):
+    """Old artifacts stay readable, and compare only against another modelless run -- which
+    is the conservative direction: they never silently grade a reranked run."""
+    path = tmp_path / "floor.json"
+    path.write_text('{"config_hash": "cfg1", "split": "test", "recorded_at": "x",'
+                    ' "buckets": []}', encoding="utf-8")
+    assert Floor.load(path).models == {}
