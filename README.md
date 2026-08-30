@@ -6,7 +6,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-22863a)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.12%20|%203.13-3776ab?logo=python&logoColor=white)](pyproject.toml)
-[![tests](https://img.shields.io/badge/tests-246%20passing-22863a)](tests/)
+[![tests](https://img.shields.io/badge/tests-671%20passing-22863a)](tests/)
 [![corpus](https://img.shields.io/badge/corpus-13,145%20chunk%20versions%20|%2026%20CFR%20parts-5b8cff)](results/eval-004-held-out.md)
 
 </div>
@@ -62,21 +62,38 @@ measured. Held-out human items:
 | abstained, either way | 0 | |
 
 **The model never abstains.** A low hallucination rate only means something if the system also
-declines when it should. That is the next thing to fix, and it is now a number rather than an
-assumption.
+declines when it should.
+
+So abstention was built and measured — and the learned combiner **lost**. A calibrated policy
+is worth shipping (74.0% coverage at 1.35% selective risk, against 4.33% for always answering;
+ECE 0.033 → 0.020 after isotonic), but eight confidence features do not beat a threshold on
+the single top-1 fusion score: AURC delta +0.0019, CI −0.0017 to +0.0070. Three of the eight
+are constant on this corpus, and rank agreement — the feature the design expected to carry it
+— ranks fifth of eight.
+
+The aggregate is also not the number that should govern the decision. On the 29 real questions
+that motivated the whole exercise the policy answers 17.2% and is still wrong on one of those;
+74% is carried by the temporal and scope buckets, which are 91% of the split and far easier.
+[results/eval-005](results/eval-005-abstention.md) reports all of it.
 
 ## Latency against quality
 
 | configuration | p50 | p95 | sufficiency |
 |---|---:|---:|---:|
-| lexical only | **23.8 ms** | 31.5 ms | 96.7% |
-| + dense | 41.0 ms | 51.2 ms | 96.7% |
-| + cross-encoder | 71.0 ms | 131.1 ms | 98.3% |
+| lexical only | **14.1 ms** | 19.3 ms | 96.7% |
+| + dense | 18.4 ms | 24.2 ms | 96.7% |
+| + cross-encoder | 87.4 ms | 131.1 ms | 98.3% |
 
-Lexical-only is three times faster at the same quality on this bucket. A stage may be shed
-under load only where this table shows it inside the noise — declaring which stages are
-optional without measuring them is how a load-shedding policy trades a slow answer for a wrong
-one.
+Lexical-only is faster at the same quality on this bucket. A stage may be shed under load
+only where this table shows it inside the noise — declaring which stages are optional without
+measuring them is how a load-shedding policy trades a slow answer for a wrong one.
+
+Two of those milliseconds were free. Lexical and dense read the same admitted set and neither
+reads the other's output, so running them one after the other paid the *sum* of two latencies
+for a result available at the *max* — 31.1 ms became 18.4 ms with no ranking change, because
+reciprocal rank fusion does not care which list finished first. The admitted set itself was
+being rebuilt per query, 9.7 ms spent recomputing an identical 9,627-element set; it is now
+cached against a counter every write bumps, so a retraction invalidates it immediately.
 
 Generation is a different order: 21.3 tokens/s unbatched, so the serving ceiling is **three
 requests per minute**. The API admits under a semaphore and returns 503 with `Retry-After`
@@ -93,6 +110,57 @@ The instrument found four of its own bugs, each written up in [results/](results
 whose items were unsatisfiable by construction, a reranker blamed for truncation, an
 intervention label that implied the wrong fix, and a chunker dropping 4.5% of the corpus that
 no instrument could detect — because the gold chunks came from the same parser.
+
+## Five sources, and an authority that binds
+
+Federal HR law is not one document. Reading only the regulation is reading the middle of an
+argument, so the store holds the hierarchy and records which tier every chunk came from:
+
+| tier | source | what it settles |
+|---:|---|---|
+| 1 | 5 U.S.C. (OLRC USLM) | what Congress required |
+| 2 | 5 CFR (eCFR point-in-time) | how OPM implemented it |
+| 3 | Federal Register notices | why it changed, and on what reasoning |
+| 4 | OPM fact sheets | how OPM says it should be read |
+| 5 | govinfo PDFs, incl. OCR | the printed record |
+
+Authority is an int because retrieval sorts on it. Source and authority filters are pushed
+**into** the query, not applied to the results, and fusion breaks exact ties by authority —
+ties are the common case, since RRF sums a handful of reciprocals. A guidance page written for
+readers tends to use the asker's own words, which is exactly what lets it outrank the law it
+summarises.
+
+Two bugs found by wiring this up, both of which reported success while being wrong. Statute
+carried the OLRC *edition* date as `valid_from`, so 5 U.S.C. 6304 — in force since 1966 —
+began in 2026 as far as the as-of predicate was concerned, and no dated query in the corpus
+window could see it. And chunks ingested after an index build have no vector, so they are
+found lexically, land in one of two fused rank lists instead of two, and quietly lose. Both
+are now reported at ingest, because both failed silently:
+
+```
+reachable at floor 2017-01-01:   0/38  ->  38/38
+38 believed chunks have no vector
+```
+
+## Operations
+
+`/metrics` is Prometheus text, hand-emitted — labels bounded by construction (a route
+template, never a path), buckets chosen against measured latency rather than doubled from
+5 ms. Logs are JSON carrying two ids: `request_id` groups one call including the lines
+written before retrieval and after a failure, `trace_id` names a replayable artifact. A
+request rejected by admission control has the first and not the second, and that asymmetry
+separates *we answered wrongly* from *we never got to answer*.
+
+`warrant eval gate` fails a build on a regression. The floor is the reference run's
+section-clustered bootstrap **lower bound**, not a hand-picked threshold: sufficiency is 97.8%
+with a 94.9–100 interval, so a gate at 97.8% fails half of all unchanged runs. A config-hash
+mismatch reports *incomparable* rather than a pass, because a gate comparing a reranked run
+against a lexical-only floor passes exactly when the system got cheaper and worse.
+
+Guardrails are measured, not asserted. A 2,600-token repetition cost 23,004 ms and is now
+refused in 0.02 ms; an unbalanced quote was a 500 and is now a 3 ms answer; a Cyrillic
+homoglyph matched nothing and now matches 100 chunks. Total overhead is under 70 µs against
+an 18.4 ms retrieval.
 
 ## What this is not
 
@@ -119,6 +187,10 @@ make autopsy      # localize failures on dev; print the failure budget
 make generation   # hallucination, citation precision, abstention
 make latency      # latency vs quality per configuration
 make serve        # the API on :8000
+
+warrant eval gate            # fail if quality regressed below the recorded floor
+warrant eval abstention      # risk-coverage, calibration, ECE
+warrant corpus ingest --source usc     # statute, notices, guidance or scans
 ```
 
 **No graphics card?** Set `index.dense.enabled: false` and `index.rerank.enabled: false`. The
