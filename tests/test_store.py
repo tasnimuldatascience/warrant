@@ -72,7 +72,7 @@ def test_retract_preserves_the_text_and_past_system_time_still_sees_it(store: St
     ability to reconstruct what the system believed before the correction."""
     store.add([chunk("630.1203#a", "parse with a truncated sentence", "2018-05-10")],
               system_from=T0)
-    store.retract("630.1203#a", system_to=T1)
+    store.retract("630.1203#a@2018-05-10", system_to=T1)
     store.add([chunk("630.1203#a", "parse with the full sentence", "2018-05-10")],
               system_from=T1)
 
@@ -87,14 +87,14 @@ def test_retract_preserves_the_text_and_past_system_time_still_sees_it(store: St
 
 def test_system_time_boundary_is_exclusive(store: Store):
     store.add([chunk("c", "first belief", "2018-01-01")], system_from=T0)
-    store.retract("c", system_to=T1)
+    store.retract("c@2018-01-01", system_to=T1)
     store.add([chunk("c", "second belief", "2018-01-01")], system_from=T1)
     assert [r["text"] for r in store.as_of("2019-01-01", system_time=T1)] == ["second belief"]
 
 
 def test_close_valid_supersedes_only_the_believed_row(store: Store):
     store.add([chunk("c", "text", "2018-01-01")], system_from=T0)
-    store.retract("c", system_to=T1)
+    store.retract("c@2018-01-01", system_to=T1)
     store.add([chunk("c", "corrected", "2018-01-01")], system_from=T1)
     assert store.close_valid("c", "2024-01-01") == 1
     live = [r for r in store.versions_of("c") if r["system_to"] is None]

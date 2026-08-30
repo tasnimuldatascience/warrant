@@ -4,6 +4,7 @@
     warrant corpus fetch   -c CONFIG    download eCFR point-in-time snapshots (cached)
     warrant corpus build   -c CONFIG    ingest cached snapshots into the bitemporal store
     warrant corpus diff    -c CONFIG    classify what changed between consecutive snapshots
+    warrant eval run       -c CONFIG    score the temporal bucket, filter on and off
 
 Commands appear here only once the code behind them exists. A CLI that advertises a
 subcommand which raises NotImplementedError is worse than one that stays quiet about it.
@@ -26,11 +27,15 @@ from .corpus.build import build_part
 from .corpus.diff import Change, diff_snapshots
 from .corpus.ecfr import ECFRClient
 from .corpus.parse import parse_sections
+from .eval.bench import mine
+from .eval.run import score
 from .index.store import Store
 
 app = typer.Typer(add_completion=False, help=__doc__, no_args_is_help=True)
 corpus_app = typer.Typer(help="Corpus construction.", no_args_is_help=True)
+eval_app = typer.Typer(help="Evaluation.", no_args_is_help=True)
 app.add_typer(corpus_app, name="corpus")
+app.add_typer(eval_app, name="eval")
 
 console = Console()
 
@@ -185,6 +190,38 @@ def corpus_diff(config: ConfigOpt = None,
                   f"[bold]{usable}[/bold] usable for the temporal benchmark ({pct:.1f}%)")
     console.print(f"apparatus-only churn suppressed: [bold]"
                   f"{totals[Change.APPARATUS_ONLY.value]}[/bold]")
+
+
+@eval_app.command("run")
+def eval_run(config: ConfigOpt = None,
+             depths: Annotated[str, typer.Option(help="comma-separated candidate depths")]
+             = "8,20,50,100,300,1000") -> None:
+    """Score the temporal bucket, with the as-of filter on and off.
+
+    The ablation is the point. Reporting that the filter works is an assertion; reporting
+    what happens without it is a measurement.
+    """
+    cfg = Config.load(config)
+    horizon = _client(cfg).latest_issue_date(cfg.corpus.title)
+    with Store(cfg.store_path) as store:
+        items = mine(store, horizon=horizon)
+        console.print(f"[bold]{len(items)}[/bold] temporal items over "
+                      f"{len({i.section_id for i in items})} sections, horizon {horizon}")
+
+        table = Table(title="temporal bucket", header_style="bold")
+        for col in ("config", "k", "n", "sufficiency", "95% CI", "distractor", "95% CI"):
+            table.add_column(col, justify="right" if col != "config" else "left")
+        for label, temporal in (("as-of ON", True), ("as-of OFF", False)):
+            for k in [int(d) for d in depths.split(",")]:
+                r = score(store, items, k=k, temporal=temporal,
+                          samples=cfg.eval.bootstrap_samples)
+                table.add_row(label, str(k), str(r.n),
+                              f"{r.sufficiency * 100:.1f}%",
+                              f"{r.sufficiency_ci[0] * 100:.1f}-{r.sufficiency_ci[1] * 100:.1f}",
+                              f"{r.distractor_rate * 100:.1f}%",
+                              f"{r.distractor_rate_ci[0] * 100:.1f}-"
+                              f"{r.distractor_rate_ci[1] * 100:.1f}")
+        console.print(table)
 
 
 if __name__ == "__main__":

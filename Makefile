@@ -3,7 +3,7 @@
 PY ?= python
 CFG ?= configs/default.yaml
 
-.PHONY: help install survey fetch build diff test lint fmt clean
+.PHONY: help install survey fetch build diff eval test lint fmt clean
 
 help:
 	@echo "install   editable install with dev extras"
@@ -11,6 +11,7 @@ help:
 	@echo "build     ingest cached snapshots into the bitemporal store"
 	@echo "fetch     download eCFR point-in-time snapshots (cached, ~10 min first run)"
 	@echo "diff      classify snapshot-to-snapshot change; report the discard rate"
+	@echo "eval      score the temporal bucket, with the as-of filter on and off"
 	@echo "test      run the test suite (offline)"
 	@echo "lint      ruff"
 
@@ -40,3 +41,6 @@ fmt:
 
 clean:
 	rm -rf runs/* .pytest_cache .ruff_cache
+
+eval:
+	$(PY) -m warrant.cli eval run -c $(CFG)

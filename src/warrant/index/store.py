@@ -38,7 +38,13 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS chunk (
     id              INTEGER PRIMARY KEY,
-    chunk_id        TEXT    NOT NULL,   -- 630.1203#a
+    -- The addressable unit of evidence: 630.1203#a@2020-08-10. Version-qualified, because
+    -- chunk_id alone repeats across versions, and in a system whose entire subject is which
+    -- version was in force, a citation that cannot name the version is not a citation.
+    -- Not UNIQUE: one valid-time version can be believed more than once over system time,
+    -- which is exactly what a corrected parse produces.
+    version_id      TEXT    NOT NULL,
+    chunk_id        TEXT    NOT NULL,   -- 630.1203#a, stable across versions
     section_id      TEXT    NOT NULL,   -- 630.1203
     title           INTEGER NOT NULL,
     part            TEXT    NOT NULL,
@@ -60,20 +66,21 @@ CREATE TABLE IF NOT EXISTS chunk (
 CREATE INDEX IF NOT EXISTS chunk_asof
     ON chunk (section_id, valid_from, valid_to, system_from, system_to);
 CREATE INDEX IF NOT EXISTS chunk_lookup ON chunk (chunk_id);
+CREATE INDEX IF NOT EXISTS chunk_version ON chunk (version_id);
 CREATE INDEX IF NOT EXISTS chunk_part   ON chunk (part, subpart);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(
-    text, heading, chunk_id UNINDEXED,
+    text, heading, version_id UNINDEXED,
     content='chunk', content_rowid='id', tokenize='porter unicode61'
 );
 
 CREATE TRIGGER IF NOT EXISTS chunk_ai AFTER INSERT ON chunk BEGIN
-    INSERT INTO chunk_fts(rowid, text, heading, chunk_id)
-    VALUES (new.id, new.text, new.heading, new.chunk_id);
+    INSERT INTO chunk_fts(rowid, text, heading, version_id)
+    VALUES (new.id, new.text, new.heading, new.version_id);
 END;
 CREATE TRIGGER IF NOT EXISTS chunk_ad AFTER DELETE ON chunk BEGIN
-    INSERT INTO chunk_fts(chunk_fts, rowid, text, heading, chunk_id)
-    VALUES ('delete', old.id, old.text, old.heading, old.chunk_id);
+    INSERT INTO chunk_fts(chunk_fts, rowid, text, heading, version_id)
+    VALUES ('delete', old.id, old.text, old.heading, old.version_id);
 END;
 """
 
@@ -100,6 +107,11 @@ class Chunk:
     valid_to: str | None = OPEN
     source_snapshot: str = ""
     config_hash: str = ""
+
+    @property
+    def version_id(self) -> str:
+        """Version-qualified address: ``630.1203#a@2020-08-10``."""
+        return f"{self.chunk_id}@{self.valid_from}"
 
 
 class Store:
@@ -133,17 +145,17 @@ class Store:
         """Insert new chunk versions. Never updates the text of an existing row."""
         ts = system_from or now()
         rows = [
-            (c.chunk_id, c.section_id, c.title, c.part, c.subpart, c.anchor, c.heading,
-             c.text, content_hash(c.text), c.valid_from, c.valid_to, ts, None,
+            (c.version_id, c.chunk_id, c.section_id, c.title, c.part, c.subpart, c.anchor,
+             c.heading, c.text, content_hash(c.text), c.valid_from, c.valid_to, ts, None,
              c.source_snapshot, c.config_hash)
             for c in chunks
         ]
         with self.tx() as db:
             db.executemany(
-                "INSERT INTO chunk (chunk_id, section_id, title, part, subpart, anchor, "
-                "heading, text, content_hash, valid_from, valid_to, system_from, system_to, "
-                "source_snapshot, config_hash) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO chunk (version_id, chunk_id, section_id, title, part, subpart, "
+                "anchor, heading, text, content_hash, valid_from, valid_to, system_from, "
+                "system_to, source_snapshot, config_hash) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 rows,
             )
         return len(rows)
@@ -158,18 +170,22 @@ class Store:
             )
         return cur.rowcount
 
-    def retract(self, chunk_id: str, *, system_to: str | None = None) -> int:
-        """Stop believing a chunk version, without deleting it.
+    def retract(self, version_id: str, *, system_to: str | None = None) -> int:
+        """Stop believing one valid-time version, without deleting it.
 
         This is how a corrected parse is recorded: close system time on the old row and
         insert the replacement. The old row stays readable at its own system time, which is
         the entire point of the second axis.
+
+        Keyed on ``version_id``, not ``chunk_id``: retracting by chunk_id would retract every
+        historical version of that paragraph at once, so fixing a parse error in the 2020
+        text would also stop the system believing the 2018 text.
         """
         ts = system_to or now()
         with self.tx() as db:
             cur = db.execute(
-                "UPDATE chunk SET system_to = ? WHERE chunk_id = ? AND system_to IS NULL",
-                (ts, chunk_id),
+                "UPDATE chunk SET system_to = ? WHERE version_id = ? AND system_to IS NULL",
+                (ts, version_id),
             )
         return cur.rowcount
 
@@ -201,20 +217,27 @@ class Store:
         ).fetchall()
 
     def search(self, query: str, *, valid_date: str, system_time: str | None = None,
-               limit: int = 100) -> list[sqlite3.Row]:
+               limit: int = 100, temporal: bool = True) -> list[sqlite3.Row]:
         """Lexical search with the as-of predicate pushed into the query.
 
         The predicate lives inside the SQL, not applied to results afterwards. Filtering
         after the fact would let superseded text consume candidate slots and rerank budget
         before being discarded, and would break the invariant in ARCHITECTURE.md section 9
         that a dated query sees at most one version of any section.
+
+        ``temporal=False`` drops the valid-time predicate. It exists solely as an ablation:
+        it is how the temporal bucket demonstrates that the filter is doing the work, rather
+        than being asserted to. It is never a serving mode -- without it the store will
+        happily return four versions of one section and let the model pick.
         """
         sys_t = system_time or now()
+        valid_clause = ("AND c.valid_from <= :v AND (c.valid_to IS NULL OR c.valid_to > :v) "
+                        if temporal else "")
         return self.db.execute(
             "SELECT c.*, bm25(chunk_fts) AS score "
             "FROM chunk_fts JOIN chunk c ON c.id = chunk_fts.rowid "
             "WHERE chunk_fts MATCH :q "
-            "AND c.valid_from <= :v AND (c.valid_to IS NULL OR c.valid_to > :v) "
+            f"{valid_clause}"
             "AND c.system_from <= :s AND (c.system_to IS NULL OR c.system_to > :s) "
             "ORDER BY score LIMIT :k",
             {"q": query, "v": valid_date, "s": sys_t, "k": limit},
