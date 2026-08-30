@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import threading
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -128,18 +129,56 @@ class Chunk:
 
 
 class Store:
-    """Append-only bitemporal store over SQLite."""
+    """Append-only bitemporal store over SQLite.
+
+    Connections are **thread-local**. A sqlite3 connection may only be used from the thread
+    that created it, and FastAPI runs synchronous endpoints in a threadpool, so a single
+    shared connection raises ``ProgrammingError`` on every request that does not happen to
+    land on the creating thread -- which, measured, was 8 of 8. Passing
+    ``check_same_thread=False`` would silence the exception while leaving one connection and
+    its GIL-bound cursor contended by every worker; a connection per thread is cheap against
+    a local file and is correct for writes as well as reads.
+
+    An in-memory store is the exception: each connection to ``:memory:`` is its own empty
+    database, so a thread-local one would silently see nothing. Tests are single-threaded, so
+    that connection is shared deliberately.
+    """
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
-        if str(path) != ":memory:":
+        self._memory = str(path) == ":memory:"
+        if not self._memory:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(str(path))
-        self.db.row_factory = sqlite3.Row
-        self.db.executescript(SCHEMA)
+        self._local = threading.local()
+        self._shared: sqlite3.Connection | None = None
+        if self._memory:
+            self._shared = self._connect()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(self.path) if not self._memory else ":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript(SCHEMA)
+        return conn
+
+    @property
+    def db(self) -> sqlite3.Connection:
+        if self._shared is not None:
+            return self._shared
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
+            conn = self._local.conn = self._connect()
+        return conn
+
+    def read_only(self) -> None:
+        """Refuse writes on this connection. Serving paths should call it."""
+        self.db.execute("PRAGMA query_only = ON")
 
     def close(self) -> None:
-        self.db.close()
+        conn = self._shared or getattr(self._local, "conn", None)
+        if conn is not None:
+            conn.close()
+        self._shared = None
+        self._local = threading.local()
 
     def __enter__(self) -> Store:
         return self

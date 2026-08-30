@@ -136,3 +136,44 @@ def test_content_hash_is_recorded_for_change_detection(store: Store):
     store.add([chunk("c", "some regulatory text", "2018-01-01")], system_from=T0)
     row = store.versions_of("c")[0]
     assert row["content_hash"] and len(row["content_hash"]) == 16
+
+
+def test_store_is_usable_from_many_threads(tmp_path):
+    """FastAPI runs sync endpoints in a threadpool. A single shared sqlite3 connection
+    raises ProgrammingError on every request that lands on another thread -- measured at
+    8 of 8 before connections were made thread-local, which meant the API failed on
+    essentially every request while its own comment claimed the case was handled."""
+    import threading
+
+    path = tmp_path / "threads.sqlite3"
+    with Store(path) as s:
+        s.add([chunk("630.306#a", "annual leave restored must be scheduled", "2017-01-01")],
+              system_from=T0)
+
+        errors: list[str] = []
+        counts: list[int] = []
+
+        def read() -> None:
+            try:
+                counts.append(len(s.as_of("2021-06-01")))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(repr(exc))
+
+        threads = [threading.Thread(target=read) for _ in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == []
+        assert counts == [1] * 16
+
+
+def test_in_memory_store_shares_one_connection(tmp_path):
+    """Each connection to ':memory:' is a separate empty database, so a thread-local one
+    would silently return nothing. The shared connection for in-memory stores is deliberate
+    and this pins it."""
+    with Store(":memory:") as s:
+        s.add([chunk("c", "text", "2017-01-01")], system_from=T0)
+        assert s.count() == 1
+        assert s.db is s.db
