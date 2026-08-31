@@ -298,6 +298,7 @@ def test_table_cells_are_not_also_emitted_as_prose():
 # -- images and OCR --------------------------------------------------------------------
 
 
+@needs_ocr
 def test_an_image_only_page_is_routed_to_ocr_and_tagged_as_such():
     data = _pdf(lambda d: _scan_page(d, ["RESTORED LEAVE", "Public Law 103-353"]))
     units = parse_pdf(data, doc_id="scan-1994")
@@ -394,6 +395,7 @@ def test_an_uncaptioned_figure_still_carries_its_address():
     assert captions[0].text.startswith("[figure on page 1")
 
 
+@needs_ocr
 def test_a_full_page_scan_produces_no_caption_unit():
     """The scan *is* the page; a caption unit for it would be a second empty citation."""
     data = _pdf(lambda d: _scan_page(d, ["SCANNED"]))
@@ -404,6 +406,7 @@ def test_a_full_page_scan_produces_no_caption_unit():
 # -- anchors ---------------------------------------------------------------------------
 
 
+@needs_ocr
 def test_anchors_are_unique_across_a_mixed_document():
     def build(doc):
         for n in range(3):

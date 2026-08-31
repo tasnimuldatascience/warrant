@@ -3,6 +3,10 @@ name: ci
 on:
   push: {branches: [main]}
   pull_request:
+  workflow_dispatch:
+  # The quality gate needs a corpus, which means fetching from a public government
+  # API. Nightly, not per-push: see the gate job.
+  schedule: [{cron: '17 4 * * *'}]
 
 jobs:
   test:
@@ -52,11 +56,17 @@ jobs:
       - run: pytest -q tests/invariants -m ""
 
   gate:
-    # Non-blocking on purpose. This job fetches from eCFR, a public government API, from a
-    # shared runner IP -- and it just failed on an HTTP error from that API, not on anything
-    # in this repository. A gate that goes red because someone else's server was busy trains
-    # people to ignore red, which costs more than the signal is worth. It still reports.
-    continue-on-error: true
+    # Nightly and on demand, never on a push or a pull request.
+    #
+    # It fetches ~10 minutes of eCFR from a shared runner IP, and that API returns 503 often
+    # enough that this job went red twice today on nothing this repository did. A red mark
+    # that means "someone else's server was busy" teaches everyone to stop reading red, which
+    # costs more than the signal is worth -- and on a repository people are reading, it is
+    # the first thing they see.
+    #
+    # The floor still moves only when retrieval changes, so nightly catches a regression
+    # within a day. `make gate` runs it locally against a corpus that is already built.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     # The quality floor, on a schedule and on demand -- deliberately not on every push.
     #
     # It needs a built corpus, and building one is ~10 minutes of eCFR fetching against a
@@ -68,7 +78,6 @@ jobs:
     # So the unit suite and the invariants guard every push, and this guards the numbers the
     # README quotes. A regression caught within a day is caught; one nobody ever checks for
     # is the actual failure mode, and that is what this closes.
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
