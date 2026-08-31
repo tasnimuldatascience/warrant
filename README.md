@@ -27,6 +27,47 @@ Built on the [eCFR](https://www.ecfr.gov) versioner API, which serves the text o
 **as it stood on any date**. Nothing is synthetic: every temporal benchmark item is grounded
 in an amendment that actually happened.
 
+## The request path
+
+```mermaid
+flowchart TD
+    Q["question + as-of date + scope"] --> G
+
+    subgraph G["guard  ·  70 µs"]
+        direction TB
+        G1["normalise · cap tokens · escape FTS5"]
+    end
+
+    G --> P["<b>predicates pushed into the query</b><br/>valid_from ≤ as-of &lt; valid_to<br/>part ∉ excluded-by-scope<br/><i>0.02 ms, cached</i>"]
+
+    P --> L["BM25 over FTS5"]
+    P --> D["dense · cosine over the admitted set"]
+
+    L --> F["reciprocal rank fusion<br/><i>ties broken by authority</i>"]
+    D --> F
+
+    F --> R["cross-encoder rerank<br/><i>off: +0.5, p=0.79</i>"]
+    R --> C["context assembly · top-k excerpts, numbered"]
+    C --> M["generate → claims + evidence ids"]
+    M --> A["deterministic span alignment"]
+    A --> V["output validation<br/><i>every id was retrieved and is in force</i>"]
+    V --> OUT["answer + citations + trace id"]
+
+    P -.->|"18.4 ms"| STREAM["evidence streamed<br/>to the client"]
+    M -.->|"6.6 s"| STREAM
+
+    style P fill:#1f3a5f,stroke:#5b8dd9,color:#fff
+    style R stroke-dasharray: 5 5
+    style STREAM fill:#3d2f14,stroke:#b8912f,color:#fff
+```
+
+The blue box is the argument. Temporal and applicability filters are **pushed into the
+query**, not applied to the results — so superseded text never consumes a candidate slot or a
+rerank budget. Removing that predicate costs 96.1 points of wrong-version rate.
+
+The dashed path is why the interface feels fast: retrieval finishes in **18.4 ms** and
+generation takes **6.6 s**, so the evidence reaches the client first and the prose follows.
+
 ## Do the predicates work?
 
 Every number below is on a **held-out test split**, split by section. Retrieval parameters
@@ -107,6 +148,27 @@ the derivation. Admission control also does **not** yet refuse before latency de
 503's floor is 20.1 s and at 3× load its p50 is 65 s, because the real queue is the
 unbounded thread pool in front of the semaphore, not the semaphore.
 
+## Two clocks, not one
+
+```mermaid
+timeline
+    title 5 CFR 630.306 — "time limit for use of restored annual leave"
+    2017-01-01 : version A in force
+               : "not later than the end of the leave year"
+    2020-08-10 : version A closed · version B opens
+               : amended by 85 FR 48089 during the national emergency
+    2023-09-28 : version B closed · version C opens
+    2026-08-25 : version C in force today
+```
+
+**Valid time** is when the text was the law. **System time** is when Warrant believed it was.
+They are independent, and keeping both is what makes a past answer reproducible: a corrected
+parse closes system time on the old row and inserts a replacement, so the row a citation
+pointed at last March is still readable exactly as it was.
+
+Ask *"by when must restored leave be scheduled?"* as of 2019 and as of 2021 and the correct
+answers differ. A system with one clock has to pick one of them and be wrong about the other.
+
 ## The failure budget
 
 Every failure attributed to the first stage at which no sufficient evidence survives — and the
@@ -114,6 +176,21 @@ ladder runs through `generation` and `grounding`, so a model failure is attribut
 than invisible. On dev: 114 items, **1** failure, `ingestion` / `applicability` / `temporal`
 all zero. It was 3 of 119 until the citation-anchor fix below; correct addresses turn out to
 matter more than any ranking change measured here.
+
+```mermaid
+flowchart LR
+    I["ingestion"] --> AP["applicability"] --> T["temporal"] --> RT["retrieval"]
+    RT --> FU["fusion"] --> RR["rerank"] --> TR["truncation"]
+    TR --> GE["generation"] --> GR["grounding"]
+
+    style I fill:#1e3a2f,stroke:#4a9d6f,color:#fff
+    style AP fill:#1e3a2f,stroke:#4a9d6f,color:#fff
+    style T fill:#1e3a2f,stroke:#4a9d6f,color:#fff
+```
+
+Each failure is charged to the **first** stage at which no sufficient evidence survives, and
+the ladder runs all the way through generation and grounding — so a model failure is
+attributable rather than invisible. Green stages carry zero failures on dev.
 
 The instrument keeps finding its own bugs, each written up in [results/](results/): a
 benchmark whose items were unsatisfiable by construction, a reranker blamed for truncation, an
