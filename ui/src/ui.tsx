@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ApiError } from "./api";
+import { splitDesignator } from "./lib";
 
 // -- notes, refusals, empties ------------------------------------------------------------
 
@@ -187,6 +188,29 @@ export function Bones({ rows = 3 }: { rows?: number }) {
   );
 }
 
+// -- set regulation text ---------------------------------------------------------------------
+
+/**
+ * One paragraph of regulation text, set the way the CFR itself is set: the designator --
+ * "(a)", "(b)(1)" -- hangs in the margin, tabular against the ones above and below it,
+ * instead of running into the sentence it introduces.
+ */
+export function RegText({ text, className }: { text: string; className?: string }) {
+  const { designator, body } = splitDesignator(text);
+  const cls = `regtext${className ? ` ${className}` : ""}`;
+  // The designator column is rendered even when empty, deliberately -- a ledger of chunks
+  // where some hang a marker and some don't reads as ragged; reserving the gutter either way
+  // is what makes the column of text above and below actually line up.
+  return (
+    <p className={cls}>
+      <span className="regtext__d mono" aria-hidden={designator ? undefined : true}>
+        {designator ?? ""}
+      </span>
+      <span className="regtext__b">{body}</span>
+    </p>
+  );
+}
+
 // -- marks ---------------------------------------------------------------------------------
 
 export function Stamp({ corner = false, text = "superseded" }: { corner?: boolean; text?: string }) {
@@ -226,12 +250,15 @@ export function Meter({
   max,
   display,
   alt = false,
+  busy = false,
 }: {
   label: string;
   value: number;
   max: number;
   display: string;
   alt?: boolean;
+  /** No known completion fraction -- an animated hatch rather than a lying width. */
+  busy?: boolean;
 }) {
   const w = max > 0 ? Math.max(1.5, (value / max) * 100) : 0;
   return (
@@ -239,8 +266,8 @@ export function Meter({
       <span className="meter__k">{label}</span>
       <span className="meter__track">
         <span
-          className={`meter__fill${alt ? " meter__fill--alt" : ""}`}
-          style={{ width: `${w}%` }}
+          className={`meter__fill${alt ? " meter__fill--alt" : ""}${busy ? " meter__fill--busy" : ""}`}
+          style={busy ? undefined : { width: `${w}%` }}
         />
       </span>
       <span className="meter__v">{display}</span>

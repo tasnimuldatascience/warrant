@@ -79,6 +79,8 @@
   --warn: #8a5b09;
   --shade: rgba(18, 22, 26, 0.05);
   --stamp-blend: multiply;
+  --grain-blend: multiply;
+  --grain-opacity: 0.05;
   --scheme: light;
 
   /* -- invariants ----------------------------------------------------------------------- */
@@ -122,6 +124,8 @@
     --warn: #d3a44b;
     --shade: rgba(255, 255, 255, 0.045);
     --stamp-blend: screen;
+    --grain-blend: screen;
+    --grain-opacity: 0.035;
     --scheme: dark;
   }
 }
@@ -146,6 +150,8 @@
   --warn: #d3a44b;
   --shade: rgba(255, 255, 255, 0.045);
   --stamp-blend: screen;
+  --grain-blend: screen;
+  --grain-opacity: 0.035;
   --scheme: dark;
 }
 
@@ -163,6 +169,7 @@ html {
 }
 
 body {
+  position: relative;
   margin: 0;
   background: var(--paper);
   color: var(--ink);
@@ -173,6 +180,23 @@ body {
   -webkit-font-smoothing: antialiased;
   /* The page never scrolls sideways; wide content scrolls inside its own container. */
   overflow-x: hidden;
+}
+
+/* A ledger is paper, not a sheet of glass. Self-contained SVG noise, painted once, fixed to
+   the viewport so it never moves and never repaints on scroll. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  mix-blend-mode: var(--grain-blend);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.shell {
+  position: relative;
+  z-index: 1;
 }
 
 h1,
@@ -554,6 +578,172 @@ textarea {
   line-height: 1.5;
 }
 
+/* one-paragraph orientation, read once and never a wall of text */
+.orient {
+  max-width: 52rem;
+  margin: 0 0 1.75rem;
+  font-family: var(--mono);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+.orient strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.orient a {
+  color: var(--accent);
+}
+
+/* ------------------------------------------------------------------------------- the hero */
+
+/**
+ * The thesis, live. The same section, one control, and the paragraph that answers the
+ * question changes text under the reader's hand when the control crosses the one date that
+ * changed it. Set the way a specimen page is set: a wide rule top and bottom, generous
+ * margin, the answer itself the largest thing in the room.
+ */
+.hero {
+  position: relative;
+  margin: 0 0 2.5rem;
+  padding: 2.1rem clamp(1.25rem, 4vw, 2.75rem) 2.25rem;
+  border-top: 3px double var(--ink);
+  border-bottom: var(--hair) solid var(--rule-firm);
+  background: var(--leaf);
+}
+.hero--loading {
+  padding-top: 2.75rem;
+  padding-bottom: 2.75rem;
+}
+.hero__eyebrow {
+  margin: 0 0 0.6rem;
+}
+.hero__q {
+  font-family: var(--serif);
+  font-weight: 300;
+  font-size: clamp(2rem, 4.6vw, 3.4rem);
+  line-height: 1.06;
+  letter-spacing: -0.022em;
+  max-width: 26ch;
+  margin-bottom: 1.6rem;
+}
+.hero__stage {
+  position: relative;
+  background: var(--sunk);
+  border-left: 3px solid var(--accent);
+  padding: 1.5rem 1.75rem 1.4rem;
+  margin-bottom: 1.4rem;
+  min-height: 7rem;
+  animation: settle 0.5s var(--ease) both;
+}
+@keyframes settle {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+.hero__answer.regtext {
+  font-family: var(--serif);
+  font-size: clamp(1.2rem, 2.3vw, 1.55rem);
+  line-height: 1.5;
+  color: var(--ink);
+}
+.hero__answer.regtext .regtext__d {
+  font-size: 0.62em;
+}
+.hero__meta {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: var(--hair) solid var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+.hero__control {
+  margin-bottom: 1.3rem;
+}
+.hero__slider {
+  width: 100%;
+  accent-color: var(--accent);
+  background: transparent;
+  display: block;
+}
+.hero__ticks {
+  position: relative;
+  height: 1.3rem;
+}
+.hero__tick {
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 0.7rem;
+  border-left: 2px solid var(--stamp);
+  translate: -1px 0;
+}
+.hero__tick-label {
+  position: absolute;
+  top: 0.75rem;
+  /* translate and text-align are set inline per-instance, so a boundary near either edge of
+     the track hangs its label from that edge instead of centring text off the side of it. */
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  color: var(--stamp);
+  white-space: nowrap;
+  max-width: min(60vw, 20rem);
+}
+
+/* ------------------------------------------------------------------------------ demos row */
+
+.demos__label {
+  margin: 0 0 0.75rem;
+}
+.demos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  border: var(--hair) solid var(--rule-firm);
+  border-bottom: 0;
+  margin-bottom: 1rem;
+}
+.demo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  text-align: left;
+  background: var(--leaf);
+  border: 0;
+  border-right: var(--hair) solid var(--rule-firm);
+  border-bottom: var(--hair) solid var(--rule-firm);
+  padding: 0.95rem 1.05rem;
+  cursor: pointer;
+  color: var(--ink);
+}
+.demo:hover:not(:disabled) {
+  background: var(--accent-wash);
+}
+.demo:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.demo__kind {
+  color: var(--accent);
+}
+.demo__q {
+  font-family: var(--serif);
+  font-size: var(--t-md);
+  line-height: 1.35;
+}
+.demo__note {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
 /* ------------------------------------------------------------------------------- panels */
 
 .panel {
@@ -841,6 +1031,12 @@ code.cmd {
  * SUPERSEDED. Rotated, letterspaced, double-ruled, and blended into the text rather than
  * laid opaquely over it — the point is that you can still read what it cancels.
  */
+/**
+ * A struck-through impression, not a badge: two slightly misregistered borders (the way a
+ * hand stamp never lands twice in the same place), a grain fill instead of a flat one, and a
+ * hairline crack through the frame — the marks of a real rubber stamp rather than a UI chip
+ * that happens to say SUPERSEDED.
+ */
 .stamp {
   position: absolute;
   z-index: 2;
@@ -860,10 +1056,37 @@ code.cmd {
   text-indent: 0.42em;
   text-transform: uppercase;
   white-space: nowrap;
-  opacity: 0.62;
+  opacity: 0.68;
   mix-blend-mode: var(--stamp-blend);
   pointer-events: none;
   user-select: none;
+  background-image: radial-gradient(currentColor 0.55px, transparent 0.7px);
+  background-size: 3.4px 3.4px;
+  background-position: 0.4px 0.6px;
+  text-shadow: 0.5px 0.4px 0 currentColor;
+}
+/* the second, misregistered impression -- offset a few degrees and a few pixels off-true */
+.stamp::before,
+.stamp::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+.stamp::before {
+  inset: -5px -3px;
+  border: 1px solid currentColor;
+  opacity: 0.4;
+  rotate: 2deg;
+  translate: 1.5px -1px;
+}
+/* the crack: one edge that didn't take ink evenly */
+.stamp::after {
+  inset: -1px 38% -1px auto;
+  right: 22%;
+  width: 3px;
+  background: var(--leaf);
+  opacity: 0.85;
+  rotate: -3deg;
 }
 .stamp--corner {
   top: 0.9rem;
@@ -874,6 +1097,9 @@ code.cmd {
   padding: 0.15rem 0.55rem;
   letter-spacing: 0.3em;
   text-indent: 0.3em;
+}
+.stamp--corner::after {
+  display: none;
 }
 
 .stamped {
@@ -1010,10 +1236,30 @@ code.cmd {
   font-style: italic;
 }
 .ev__text {
+  max-width: 44rem;
+}
+
+/* -- set the way the CFR itself is set: designator hanging in a fixed gutter, body ranged -- */
+.regtext {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  gap: 0 0.35rem;
+  margin: 0;
   font-size: var(--t-lg);
   line-height: 1.6;
   color: var(--ink);
-  max-width: 44rem;
+}
+.regtext__d {
+  grid-column: 1;
+  text-align: right;
+  color: var(--ink-3);
+  font-size: 0.72em;
+  white-space: nowrap;
+  padding-top: 0.15em;
+}
+.regtext__b {
+  grid-column: 2;
+  min-width: 0;
 }
 .ev__foot {
   margin-top: 0.55rem;
@@ -1108,6 +1354,22 @@ code.cmd {
 }
 .meter__fill--alt {
   background: var(--ink-4);
+}
+/* no completion fraction to report honestly, so this reads as busy rather than as a lie */
+.meter__fill--busy {
+  width: 100% !important;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--ink-4) 0 7px,
+    transparent 7px 14px
+  );
+  background-size: 20px 20px;
+  animation: hatch 0.8s linear infinite;
+}
+@keyframes hatch {
+  to {
+    background-position: 20px 0;
+  }
 }
 .meter__v {
   font-variant-numeric: tabular-nums;

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useCorpus } from "../app";
 import { useAsk, type AskState } from "../ask";
-import type { StreamEvidence } from "../api";
+import { api, type AskParams, type SectionVersion, type StreamEvidence } from "../api";
 import {
   AUTHORITY,
+  addDays,
   badDate,
+  daysBetween,
   inForce,
   longDate,
   ms,
@@ -15,9 +17,41 @@ import {
   stored,
   superseded,
   today,
+  useAsync,
   useNow,
 } from "../lib";
-import { Chips, Copy, Empty, Field, Note, Refusal, SectionLabel, Stamp, Tag } from "../ui";
+import {
+  Chips,
+  Copy,
+  Empty,
+  Failure,
+  Field,
+  Meter,
+  Note,
+  RegText,
+  Refusal,
+  SectionLabel,
+  Stamp,
+  Tag,
+} from "../ui";
+
+/**
+ * The flagship temporal example. One question, one paragraph, two dates either side of the
+ * one amendment that changed the words themselves -- not just a cross-reference, an actual
+ * change of substance a reader would act on.
+ *
+ * §575.102's definition of "service agreement" required a term of *not less than 6 months*
+ * from 2017-01-01 until it was amended on 2026-08-25 (the newest amendment in this corpus, as
+ * of the date this shipped) to drop that floor entirely -- only the 4-year ceiling remains.
+ * §630.306, the other obvious candidate, was checked and rejected for this role: its 2020
+ * amendment only added a cross-reference, and the paragraph a visitor would actually read
+ * barely moves. This one visibly changes.
+ */
+const HERO_SECTION = "575.102";
+const HERO_ANCHOR = "p21";
+const HERO_Q = "How long can a service agreement for a recruitment incentive run?";
+const HERO_BEFORE = "2020-06-01";
+const HERO_AFTER = "2026-08-25";
 
 /**
  * Ask.
@@ -35,6 +69,178 @@ const EXAMPLES = [
   "When may an agency deny a within-grade increase?",
   "How long can a term appointment last?",
 ];
+
+/**
+ * One demonstration each of the three claims this project actually measures: the as-of
+ * predicate changes the answer (temporal), the scope predicate changes which part governs
+ * (scope), and evidence can carry its own exception clause that a generator can drop
+ * (exception -- 15.7% of chunks contain except/unless/subject to). Each fills the form and
+ * runs the real streamed request; nothing here is staged.
+ */
+interface Demo {
+  kind: string;
+  q: string;
+  as_of?: string;
+  pay_system?: string | null;
+  note: string;
+}
+
+const DEMOS: Demo[] = [
+  {
+    kind: "temporal · before",
+    q: HERO_Q,
+    as_of: HERO_BEFORE,
+    note: "§575.102 as it read for nine years — a service agreement had to run at least 6 months, and at most 4 years.",
+  },
+  {
+    kind: "temporal · after",
+    q: HERO_Q,
+    as_of: HERO_AFTER,
+    note: "The same section, the same question, asked the day of its amendment — the 6-month floor is gone; only the 4-year ceiling remains.",
+  },
+  {
+    kind: "scope · GS",
+    q: "How is my within-grade increase determined?",
+    pay_system: "GS",
+    note: "General Schedule pay retrieves part 531 — the rest of the corpus never costs a candidate slot.",
+  },
+  {
+    kind: "scope · FWS",
+    q: "How is my within-grade increase determined?",
+    pay_system: "FWS",
+    note: "The identical question under the Federal Wage System retrieves part 532 instead. Same words, different governing part.",
+  },
+  {
+    kind: "exception",
+    q: "Is there a time limit on reinstatement eligibility after career tenure?",
+    note: "The top evidence reads “no time limit… except as provided in paragraph (c)” — watch whether the exception survives into the answer below.",
+  },
+];
+
+/**
+ * The thesis, live: the same section scrubbed across the one date that changes its answer.
+ *
+ * Fetches §630.306's whole version history once — the same call the Timeline screen makes —
+ * and reads the in-force paragraph client-side as the control moves, rather than round-
+ * tripping retrieval on every drag. That is what makes it a control a visitor will actually
+ * move: no network wait between the gesture and the text changing under it.
+ */
+function TemporalHero({ onRun }: { onRun: (asOf: string) => void }) {
+  const [section] = useAsync((s) => api.section(HERO_SECTION, s), []);
+  const [asOf, setAsOf] = useState(HERO_BEFORE);
+
+  if (section.state === "failed") {
+    return (
+      <section className="hero">
+        <Failure error={section.error} />
+      </section>
+    );
+  }
+  if (section.state !== "ok") {
+    return (
+      <section className="hero hero--loading" aria-hidden="true">
+        <div className="bone" style={{ width: "40%", height: "1.2rem" }} />
+        <div className="bone" style={{ width: "78%", height: "3rem", marginTop: "0.9rem" }} />
+      </section>
+    );
+  }
+
+  const versions: SectionVersion[] = section.value.versions;
+  const lo = versions[0]?.valid_from ?? HERO_BEFORE;
+  const last = versions[versions.length - 1];
+  const hi = last?.valid_to ?? today();
+  const total = Math.max(1, daysBetween(lo, hi));
+  const offset = Math.min(total, Math.max(0, daysBetween(lo, asOf)));
+  const activeIdx = versions.findIndex((v) => inForce(v, asOf));
+  const active = activeIdx === -1 ? last : versions[activeIdx];
+  const para = active?.paragraphs.find((p) => p.anchor === HERO_ANCHOR) ?? active?.paragraphs[0];
+  // The only boundary in this section's life -- everywhere else the slider just moves within
+  // one answer, which is also worth feeling.
+  const boundary = versions.length > 1 ? versions[1].valid_from : null;
+  const boundaryPct = boundary ? (daysBetween(lo, boundary) / total) * 100 : null;
+  const stale = !!active && active.valid_to !== null && active.valid_to <= today();
+
+  return (
+    <section className="hero">
+      <p className="hero__eyebrow label">
+        the same question, {versions.length} versions of one section — one demonstration
+      </p>
+      <h1 className="hero__q">{HERO_Q}</h1>
+
+      <div className="hero__stage stamped" key={active?.valid_from}>
+        {stale ? <Stamp corner /> : null}
+        <div className="stamped__text" style={stale ? undefined : { opacity: 1, filter: "none" }}>
+          {para ? <RegText text={para.text} className="hero__answer" /> : null}
+        </div>
+        <div className="hero__meta">
+          <span className="mono">
+            {active ? longDate(active.valid_from) : "—"} →{" "}
+            {active?.valid_to ? longDate(active.valid_to) : "in force"}
+          </span>
+          {stale ? <Tag kind="stamp">superseded</Tag> : <Tag kind="ok">current</Tag>}
+          <span className="dim">§ {HERO_SECTION}, part 630</span>
+        </div>
+      </div>
+
+      <div className="hero__control">
+        <label className="visually-hidden" htmlFor="hero-scrub">
+          As-of date for § 630.306
+        </label>
+        <input
+          id="hero-scrub"
+          type="range"
+          className="hero__slider"
+          min={0}
+          max={total}
+          step={1}
+          value={offset}
+          onChange={(e) => setAsOf(addDays(lo, Number(e.target.value)))}
+          aria-valuetext={longDate(asOf)}
+        />
+        {boundaryPct !== null ? (
+          <div className="hero__ticks" aria-hidden="true">
+            <span className="hero__tick" style={{ left: `${boundaryPct}%` }} />
+            {/* The tick mark sits at the true position; the label clamps inside the track
+                and switches which edge it hangs from near either end, so a boundary close
+                to "today" -- which this corpus's newest amendment always is -- never runs
+                text off the side of the control. */}
+            <span
+              className="hero__tick-label"
+              style={
+                boundaryPct > 80
+                  ? {
+                      right: `${Math.max(0, 100 - boundaryPct)}%`,
+                      translate: "0 0",
+                      textAlign: "right",
+                    }
+                  : boundaryPct < 20
+                    ? { left: `${boundaryPct}%`, translate: "0 0", textAlign: "left" }
+                    : { left: `${boundaryPct}%`, translate: "-50% 0", textAlign: "center" }
+              }
+            >
+              amended {boundary}
+            </span>
+          </div>
+        ) : null}
+        <div className="row" style={{ marginTop: "0.5rem", alignItems: "center" }}>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAsOf(HERO_BEFORE)}>
+            {HERO_BEFORE} · before
+          </button>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAsOf(HERO_AFTER)}>
+            {HERO_AFTER} · after
+          </button>
+          <span className="hint" style={{ marginTop: 0 }}>
+            asked as of <strong className="mono">{asOf}</strong>
+          </span>
+        </div>
+      </div>
+
+      <button type="button" className="btn" onClick={() => onRun(asOf)}>
+        ask this, live, as of {asOf} →
+      </button>
+    </section>
+  );
+}
 
 export default function Ask() {
   const { meta, ready, clampDate } = useCorpus();
@@ -68,20 +274,57 @@ export default function Ask() {
     run({ q: q.trim(), as_of: asOf, pay_system: pay, service });
   }
 
+  /** Fill the form to match a demonstration and run it for real — no staged transcript. */
+  function runDemo(d: Demo) {
+    if (blocked) return;
+    const params: AskParams = {
+      q: d.q,
+      as_of: clampDate(d.as_of ?? meta.latest ?? today()),
+      pay_system: d.pay_system ?? null,
+      service: null,
+    };
+    setQ(params.q);
+    setAsOf(params.as_of);
+    setPay(params.pay_system ?? null);
+    setService(null);
+    run(params);
+  }
+
   const payValues = meta.facets.pay_system ?? [];
   const serviceValues = meta.facets.service ?? [];
 
   return (
     <div className="screen">
-      <div className="screen__head">
-        <h1 className="screen__title">What did the regulation say, and on what day?</h1>
-        <p className="screen__lede">
-          Retrieval is predicated on the date <em>and</em> on who is asking, so the answer is
-          built only from text that was in force and that governs the profile below. The
-          evidence appears first because it is ready first.
-        </p>
+      <p className="orient">
+        Warrant answers <strong>as of a date you choose</strong>, cites every claim to a
+        specific evidence id rather than to its own prose, and — when a request fails —
+        names the exact pipeline stage responsible instead of a generic error. The panel
+        below is the first claim, live; the third is one click away on{" "}
+        <a href="#/trace">Trace</a>.
+      </p>
+
+      <TemporalHero onRun={(d) => runDemo({ kind: "temporal", q: HERO_Q, as_of: d, note: "" })} />
+
+      <p className="demos__label label">three more things this corpus can show you</p>
+      <div className="demos">
+        {DEMOS.map((d, i) => (
+          <button
+            type="button"
+            key={i}
+            className="demo"
+            onClick={() => runDemo(d)}
+            disabled={blocked}
+          >
+            <span className="demo__kind label">{d.kind}</span>
+            <span className="demo__q">{d.q}</span>
+            <span className="demo__note">{d.note}</span>
+          </button>
+        ))}
       </div>
 
+      <p className="demos__label label" style={{ marginTop: "2rem" }}>
+        or ask anything else
+      </p>
       <form onSubmit={submit} noValidate>
         <Field
           label="question"
@@ -109,7 +352,7 @@ export default function Ask() {
 
         <div className="row" style={{ marginBottom: "0.4rem" }}>
           <span className="label" style={{ paddingBottom: "0.35rem" }}>
-            try
+            other examples
           </span>
           {EXAMPLES.map((ex) => (
             <button
@@ -305,6 +548,7 @@ function Result({
               </>
             ) : null}
           </div>
+          <Race state={state} evidenceMs={evidenceMs} liveMs={liveMs} />
           {state.retrieval ? <Timings timings={state.retrieval.timings} /> : null}
         </div>
       </div>
@@ -419,6 +663,46 @@ function GenerationLine({ state, liveMs }: { state: AskState; liveMs: number | n
   return <span className="dim">not started</span>;
 }
 
+/**
+ * The asymmetry, drawn rather than stated: evidence fills solid the instant it arrives, and
+ * prose hatches — deliberately unfinished-looking, because there is no completion fraction
+ * to report honestly while a token budget is still being spent — until it either lands or
+ * doesn't.
+ */
+function Race({
+  state,
+  evidenceMs,
+  liveMs,
+}: {
+  state: AskState;
+  evidenceMs: number | null;
+  liveMs: number | null;
+}) {
+  if (state.done && state.done.generated === false) return null;
+  const evDone = evidenceMs !== null;
+  let proseDisplay: string;
+  let proseValue = 0;
+  let busy = false;
+  if (state.phase === "generating") {
+    busy = true;
+    proseDisplay = "composing — one at a time, ~205 tokens";
+  } else if (state.phase === "done" && state.done?.generated) {
+    proseValue = 1;
+    proseDisplay = liveMs !== null ? `${ms(liveMs)} — landed` : "landed";
+  } else if (state.phase === "refused" || state.phase === "cancelled") {
+    proseDisplay = "did not land";
+  } else {
+    proseDisplay = "not yet in the slot";
+  }
+  return (
+    <div className="meter race" style={{ marginTop: "0.9rem" }}>
+      <Meter label="evidence" value={evDone ? 1 : 0} max={1}
+             display={evDone ? `${ms(evidenceMs!)} — landed` : "in flight…"} />
+      <Meter label="prose" value={proseValue} max={1} display={proseDisplay} busy={busy} alt />
+    </div>
+  );
+}
+
 /** Per-stage wall clock off the `retrieval` frame, drawn against the slowest stage. */
 function Timings({ timings }: { timings: Record<string, number> }) {
   const rows = Object.entries(timings).filter(([k]) => k !== "total");
@@ -472,9 +756,10 @@ function EvidenceRow({
           {ev.heading ? <span className="ev__heading">{ev.heading}</span> : null}
           {cited ? <Tag kind="accent">cited</Tag> : null}
         </div>
-        <div className="ev__text">
-          {long && !open ? ev.text.slice(0, 620).trimEnd() + "…" : ev.text}
-        </div>
+        <RegText
+          text={long && !open ? ev.text.slice(0, 620).trimEnd() + "…" : ev.text}
+          className="ev__text"
+        />
         {long ? (
           <button className="fold" style={{ marginTop: "0.5rem" }} onClick={() => setOpen(!open)}>
             {open ? "▲ fold" : `▼ unfold — ${num(ev.text.length)} characters`}

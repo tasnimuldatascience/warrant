@@ -14,10 +14,15 @@ process-wide singleton, so the first test pays for the ONNX models and the rest 
 
 from __future__ import annotations
 
-import fitz
 import pytest
 
-from warrant.sources.base import (
+# PyMuPDF lives in the `sources` extra, which a lexical-only install does not carry.
+# Skipping the module beats failing collection: an ImportError here takes down the
+# entire run, so one absent optional dependency reported every other test as unrun.
+fitz = pytest.importorskip(  # noqa: E402 - must run before the imports it gates
+    "fitz", reason="requires the `sources` extra (PyMuPDF)")
+
+from warrant.sources.base import (  # noqa: E402 - gated by the importorskip above
     KIND_CAPTION,
     KIND_HEADING,
     KIND_OCR,
@@ -25,7 +30,7 @@ from warrant.sources.base import (
     KIND_TABLE,
     Source,
 )
-from warrant.sources.pdf import (
+from warrant.sources.pdf import (  # noqa: E402 - gated by the importorskip above
     AUTHORITY_ARCHIVAL,
     PdfParseError,
     PdfRef,

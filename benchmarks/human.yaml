@@ -267,3 +267,767 @@
 - id: rif-restored-leave-parttime
   query: How much excess annual leave applies to a part-time employee?
   evidence: [["630.306#b-2"]]
+
+# --- part coverage --------------------------------------------------------------
+#
+# Everything above concentrates on 315, 351, 432, 531, 550 and their neighbors. The corpus
+# holds 26 parts of 5 CFR chapter I; a bucket that only exercises appointments, RIF and pay
+# for GS employees measures appointments, RIF and pay for GS employees, not "realistic
+# queries" in general. What follows spreads deliberately into 300, 317, 330, 335, 337, 351,
+# 353, 410, 430, 432, 451, 511, 530, 531, 532, 534, 536, 550, 551, 575, 591, 610, 630 and 890,
+# and keeps writing the hard kinds throughout: date-dependent answers, scope-dependent
+# answers, exception clauses (``except``/``unless``/``subject to``), answers split across two
+# paragraphs, and questions this corpus cannot answer on its own terms.
+#
+# Each item below was written as a question first -- what a federal employee or an HR
+# specialist would actually want to know -- and the evidence located afterward by reading the
+# section, not the reverse. Paraphrasing a chunk into a question makes the query the document;
+# that is not a query, and inflates sufficiency trivially.
+
+# -- part 300: employment general provisions --------------------------------------
+
+- id: detail-competitive-to-excepted
+  query: Can my agency detail me from a competitive service job into an excepted service position?
+  evidence: [["300.301#a"]]
+
+- id: detail-excepted-to-competitive-approval
+  query: Can an excepted service employee be detailed into the competitive service without OPM's approval?
+  evidence: [["300.301#c"]]
+
+- id: exam-score-confidentiality
+  query: Will OPM tell my employer how I scored on a civil service exam?
+  evidence: [["300.201#e"]]
+
+- id: recruiting-firm-fee-ban
+  query: Can a commercial recruiting firm charge me a fee to apply for a federal job through it?
+  evidence: [["300.404#a"]]
+
+- id: recruiting-firm-fee-exception
+  query: Are there any fees a nonprofit employment service is still allowed to charge job candidates it refers to federal jobs?
+  evidence: [["300.404#b"]]
+
+- id: temp-firm-ses-exclusion
+  query: Can my agency use a private staffing firm to fill a Senior Executive Service opening?
+  evidence: [["300.502#b"]]
+
+- id: temp-firm-workday-limit
+  query: How many workdays can an agency use a private-sector temp staffing firm for the same short-term need?
+  evidence: [["300.504#a"]]
+
+- id: temp-firm-extension-exception
+  query: Can an individual assigned by a temp staffing firm stay on past the usual 120-workday cap?
+  evidence: [["300.504#b-2"]]
+
+- id: rapid-advancement-register-exclusion
+  query: Do the rules against unusually rapid promotions apply if I'm hired straight off a competitive OPM register?
+  evidence: [["300.603#b-1"]]
+
+- id: temp-help-displace-employee
+  query: Can an agency use a private staffing firm to replace a federal employee it no longer wants?
+  evidence: [["300.503#c-2"]]
+
+# -- part 317: Senior Executive Service --------------------------------------------
+
+- id: ses-probation-length
+  query: How long is the probationary period for a new career Senior Executive Service appointee?
+  evidence: [["317.503#a"]]
+  scope: {pay_system: SES}
+
+- id: ses-probation-leave-credit
+  query: Does time on paid leave count toward my SES probationary period?
+  evidence: [["317.503#d-1"]]
+  scope: {pay_system: SES}
+
+- id: ses-vacancy-posting-period
+  query: How long must an SES vacancy announcement be posted before an agency can fill it by career appointment?
+  evidence: [["317.501#b-2"]]
+  scope: {pay_system: SES}
+
+- id: ses-qrb-certification-required
+  query: Does a new career SES appointee need Qualifications Review Board certification before starting?
+  evidence: [["317.502#a"]]
+  scope: {pay_system: SES}
+
+- id: ses-qrb-noncareer-conversion-exception
+  query: If I'm already in the SES as a noncareer employee and I'm converting to career status in my same job, do I still need a new Qualifications Review Board certification?
+  evidence: [["317.502#e"]]
+  scope: {pay_system: SES}
+
+- id: ses-qualifications-standard-education-cap
+  query: Can an SES qualifications standard require more formal education than a similar General Schedule position requires?
+  evidence: [["317.402#d-2"]]
+  scope: {pay_system: SES}
+
+- id: ses-decline-conversion-retains-grade
+  query: What happens to my grade and pay if I decline conversion to the SES when my position is designated?
+  evidence: [["317.303#a"]]
+  scope: {pay_system: SES}
+
+# -- part 337: examining system ----------------------------------------------------
+
+- id: veterans-preference-points-earned
+  query: How many extra points can a preference-eligible veteran earn on top of a passing civil service exam score?
+  evidence: [["337.101#b-1", "337.101#b-2"]]
+
+- id: retained-grade-experience-considered
+  query: If I'm on a retained grade after a downgrade, which grade level counts when OPM evaluates my later job application?
+  evidence: [["337.102#a"]]
+
+- id: direct-hire-authority-scope
+  query: What does an agency direct-hire authority let it skip when filling a shortage occupation?
+  evidence: [["337.202#a"]]
+
+- id: it-direct-hire-max-years
+  query: What is the longest an employee can serve on an appointment made under IT direct-hire authority for a severe shortage?
+  evidence: [["337.204#d-5-ii"]]
+
+- id: veterans-preference-category-rating-exception
+  query: Do my veterans' preference points get added to my score when an agency uses category rating instead of numeric scoring?
+  evidence: [["337.304#b"]]
+
+- id: category-rating-quality-categories
+  query: What must an agency do to define its quality categories before using category rating to fill a job?
+  evidence: [["337.303#b"]]
+
+# -- part 511: position classification ---------------------------------------------
+
+- id: reclass-notice-contents
+  query: What must the written notice explain when my position is reclassified to a lower grade?
+  evidence: [["511.602#a", "511.602#b", "511.602#c"]]
+
+- id: classification-appeal-not-officially-assigned
+  query: Can I appeal the classification of a position I'm only detailed to, not officially assigned to?
+  evidence: [["511.607#b-1"]]
+
+- id: classification-reconsideration-deadline
+  query: How long do I have to request reconsideration of an OPM classification appeal decision?
+  evidence: [["511.605#c"]]
+
+- id: classification-appeal-representative
+  query: Can I have someone represent me during a position classification appeal?
+  evidence: [["511.608#p1"]]
+
+- id: classification-decision-final
+  query: Can I appeal further after OPM decides my position classification appeal?
+  evidence: [["511.612#p1"]]
+
+- id: classification-temp-compliance-retained-grade-exception
+  query: Can my agency use temporary compliance action to delay a downgrade while a classification dispute is reconsidered, if I'm entitled to retained grade?
+  evidence: [["511.615#p5"]]
+
+- id: classification-gs-exclusions
+  query: Which positions are excluded from the General Schedule classification rules?
+  evidence: [["511.201#p1"]]
+
+# -- part 530: pay rates and systems (general) -------------------------------------
+
+- id: aggregate-pay-cap-exists
+  query: Is there a cap on my total compensation in a calendar year, on top of my regular salary?
+  evidence: [["530.201#p1"]]
+
+- id: aggregate-pay-cap-overtime-exclusion
+  query: Does FLSA overtime pay count toward the annual aggregate pay cap?
+  evidence: [["530.202#p3-14-i"]]
+
+- id: aggregate-pay-cap-severance-exclusion
+  query: Does severance pay count toward the annual aggregate compensation cap?
+  evidence: [["530.202#p3-14-ii"]]
+
+- id: special-rate-gs-only
+  query: Do special pay rate schedules under this part apply to employees outside the General Schedule?
+  evidence: [["530.301#b"]]
+  scope: {pay_system: GS}
+
+- id: special-rate-agency-opt-out
+  query: Can my agency exclude a category of its employees from a special rate schedule that would otherwise cover them?
+  evidence: [["530.303#c-2"]]
+  scope: {pay_system: GS}
+
+- id: special-rate-higher-pay-exception
+  query: If I'm already entitled to a higher rate of pay under another authority, do I still also get the special rate?
+  evidence: [["530.303#d"]]
+  scope: {pay_system: GS}
+
+# -- part 534: pay under other systems (SES, temporary organizations, students) ---
+
+- id: ses-pay-set-on-appointment
+  query: Can my agency set my pay anywhere within the SES pay range when I'm first appointed?
+  evidence: [["534.404#a"]]
+  scope: {pay_system: SES}
+
+- id: ses-pay-reduction-notice
+  query: How much advance written notice must I get before my SES pay is reduced for performance reasons?
+  evidence: [["534.404#j-3-i"]]
+  scope: {pay_system: SES}
+
+- id: ses-pay-reduction-appeal-exception
+  query: Can I appeal to the MSPB if my SES pay is reduced for performance reasons?
+  evidence: [["534.404#j-4"]]
+  scope: {pay_system: SES}
+
+- id: ses-pay-reduction-cap
+  query: By what percentage can my agency cut a career senior executive's pay for performance reasons?
+  evidence: [["534.404#j"]]
+  scope: {pay_system: SES}
+
+- id: ses-pay-transfer-protection
+  query: If I transfer to an agency with a lower SES pay ceiling, can my pay be cut below the level III Executive Schedule rate?
+  evidence: [["534.404#h-2"]]
+  scope: {pay_system: SES}
+
+- id: student-trainee-stipend-exception
+  query: Can an agency pay a student trainee more than the normal maximum stipend for their training level?
+  evidence: [["534.203#b"]]
+
+# -- part 536: grade and pay retention ---------------------------------------------
+
+- id: grade-retention-rif-downgrade
+  query: Do I get to keep my old grade for pay purposes if I'm downgraded through a reduction in force?
+  evidence: [["536.201#a"]]
+
+- id: grade-retention-temp-promotion-exclusion
+  query: Can I get grade retention based on the grade I held during a temporary promotion?
+  evidence: [["536.102#c"]]
+
+- id: grade-retention-supervisory-probation-exclusion
+  query: If I'm removed from a supervisory job for failing my supervisory probationary period, do I get grade retention?
+  evidence: [["536.102#b-3"]]
+
+- id: grade-retention-duration
+  query: How long does grade retention last after a reduction-in-force downgrade?
+  evidence: [["536.204#a"]]
+
+- id: reasonable-offer-decline-consequence
+  query: What does my agency have to tell me about what happens to my grade retention if I turn down a reasonable job offer?
+  evidence: [["536.104#c-2"]]
+
+- id: grade-retention-service-requirement
+  query: How much time at a higher grade do I need before I qualify for grade retention after a RIF downgrade?
+  evidence: [["536.203#a"]]
+
+# -- part 551: Fair Labor Standards Act pay administration -------------------------
+
+- id: flsa-trainee-exclusion
+  query: Am I covered by FLSA overtime protections if I'm a trainee rather than a regular employee?
+  evidence: [["551.103#b-2"]]
+
+- id: flsa-volunteer-exclusion
+  query: Does the Fair Labor Standards Act apply to volunteers?
+  evidence: [["551.103#b-3"]]
+
+- id: flsa-claim-statute-limitations
+  query: How long do I have to file an FLSA back pay claim?
+  evidence: [["551.104#p75"]]
+
+- id: flsa-postal-dol-administered
+  query: Does OPM decide FLSA disputes for US Postal Service employees?
+  evidence: [["551.102#c", "551.102#c-2"]]
+
+- id: flsa-primary-duty-threshold
+  query: How much of my work has to be exempt-type duties to count as my primary duty under FLSA?
+  evidence: [["551.104#p65"]]
+
+- id: flsa-exempt-status-determination-authority
+  query: Who decides whether my position is FLSA exempt or nonexempt?
+  evidence: [["551.201#p1"]]
+
+- id: flsa-uncompensated-appointee-exclusion
+  query: Does the Fair Labor Standards Act apply to someone appointed without compensation?
+  evidence: [["551.103#b-1"]]
+
+# -- part 575: recruitment, relocation and retention incentives -------------------
+
+- id: recruitment-incentive-break-in-service
+  query: How long a break in federal service do I need before a new appointment counts as "newly appointed" for a recruitment incentive?
+  evidence: [["575.102#p8-2"]]
+
+- id: recruitment-incentive-ses-eligible
+  query: Can a Senior Executive Service position receive a recruitment incentive?
+  evidence: [["575.103#a-3"]]
+  scope: {pay_system: SES}
+
+- id: recruitment-incentive-relocation-overlap-exception
+  query: Can I get a recruitment incentive while I'm still under a service agreement for a relocation incentive?
+  evidence: [["575.105#c-1"]]
+
+- id: recruitment-incentive-approval-level
+  query: Does approving my recruitment incentive require sign-off above my direct supervisor?
+  evidence: [["575.107#b-1"]]
+
+# 575.104 was renumbered on 2026-03-09 when Schedule Policy/Career exclusions were added --
+# the same exclusion for SES limited-term appointees moved from (d)(4) to (a)(4)(iv). A
+# system that resolves anchors by name rather than by the version in force would get the
+# after-side item right and the before-side wrong, or vice versa, depending which mapping it
+# cached.
+- id: recruitment-incentive-ses-limited-term-exclusion-2020
+  query: Can a Senior Executive Service limited-term or limited-emergency appointee receive a recruitment incentive?
+  as_of: "2020-06-01"
+  evidence: [["575.104#d-4"]]
+  scope: {pay_system: SES}
+
+- id: recruitment-incentive-ses-limited-term-exclusion-2026
+  query: Can a Senior Executive Service limited-term or limited-emergency appointee receive a recruitment incentive?
+  as_of: "2026-06-01"
+  evidence: [["575.104#a-4-iv"]]
+  scope: {pay_system: SES}
+
+# -- part 610: hours of duty --------------------------------------------------------
+
+- id: basic-workweek-hours
+  query: How many hours is my basic workweek supposed to be?
+  evidence: [["610.111#a-1"]]
+
+- id: workweek-monday-friday-preference
+  query: Is my basic workweek supposed to run Monday through Friday?
+  evidence: [["610.121#a-2"]]
+
+- id: basic-workday-max-hours
+  query: Can my agency schedule my basic (nonovertime) workday for more than 8 hours?
+  evidence: [["610.121#a-4"]]
+
+- id: compressed-schedule-holiday-training-exception
+  query: If I'm on a compressed work schedule and I'm in training on a holiday, do I still get holiday premium pay?
+  evidence: [["610.407#b"]]
+
+- id: ses-credit-hours-exclusion
+  query: Can I accumulate credit hours under a flexible work schedule if I'm in the Senior Executive Service?
+  evidence: [["610.408#p1"]]
+  scope: {pay_system: SES}
+
+- id: excused-absence-max-days
+  query: How many consecutive workdays can my agency excuse me from duty with pay under an administrative order, without charging leave?
+  evidence: [["610.302#p1"]]
+
+# -- part 591: allowances (uniforms, COLA, post differentials) ---------------------
+
+# 591.103 was amended 2026-07-13; the maximum uniform allowance rose from $800 to $1,500 and
+# the paragraph moved from (a) to (a)(1)/(a)(2) in the same amendment.
+- id: uniform-allowance-cap-2020
+  query: What is the maximum annual uniform allowance an agency can pay me?
+  as_of: "2020-06-01"
+  evidence: [["591.103#a"]]
+
+- id: uniform-allowance-cap-2026
+  query: What is the maximum annual uniform allowance an agency can pay me?
+  as_of: "2026-08-01"
+  evidence: [["591.103#a-1"]]
+
+- id: cola-vs-post-differential-purpose
+  query: What's the difference between why the government pays a cost-of-living allowance versus a post differential?
+  evidence: [["591.202#p1", "591.203#p1"]]
+
+- id: higher-uniform-allowance-notice
+  query: Does my agency have to publish anything before setting a higher uniform allowance rate than the government-wide maximum?
+  evidence: [["591.104#d"]]
+
+- id: nonforeign-area-alaska
+  query: Is Alaska considered a "nonforeign area" for cost-of-living allowance purposes?
+  evidence: [["591.205#b-1"]]
+
+- id: uniform-vendor-service-charge-cap
+  query: If my agency buys my uniform directly from a vendor, how much can it add for service charges?
+  evidence: [["591.103#b"]]
+
+# -- part 890: Federal Employees Health Benefits Program ---------------------------
+#
+# The largest part in the corpus by section count, and the one most federal employees would
+# actually search for. Concentrated on enrollment opportunities, family coverage and temporary
+# continuation of coverage (TCC) rather than the debarment subpart, which is provider-facing
+# rather than employee-facing.
+
+- id: fehb-initial-enrollment-window
+  query: How many days do I have to enroll in FEHB after I first become eligible?
+  evidence: [["890.301#a"]]
+
+- id: fehb-open-season-dates
+  query: When does the annual FEHB open season run each year?
+  evidence: [["890.301#f"]]
+
+- id: fehb-premium-conversion-decrease-exception
+  query: I'm enrolled in premium conversion -- can I decrease my FEHB enrollment type in the middle of the year?
+  evidence: [["890.301#e-1-i"]]
+
+- id: fehb-court-order-child-coverage-protection
+  query: Can I drop a child from my FEHB coverage if a court order requires me to keep them covered?
+  evidence: [["890.301#e-1-ii"]]
+
+- id: fehb-medicare-eligibility-change-window
+  query: When can I switch FEHB plans if I'm about to become eligible for Medicare?
+  evidence: [["890.301#k"]]
+
+- id: fehb-nonpay-status-coverage-duration
+  query: How long does my FEHB coverage continue if I go into leave-without-pay status?
+  evidence: [["890.303#e"]]
+
+- id: fehb-death-self-and-family-transfer
+  query: What happens to my family's FEHB coverage if I die while I have a self and family enrollment?
+  evidence: [["890.303#c"]]
+
+- id: fehb-adult-child-disability-coverage
+  query: Can my adult child stay on my FEHB family coverage past age 26 if they have a disability?
+  evidence: [["890.302#b-1"]]
+
+- id: fehb-stepchild-after-divorce
+  query: Does my stepchild stay covered on my FEHB plan after I divorce their parent?
+  evidence: [["890.302#b-2"]]
+
+- id: tcc-gross-misconduct-exclusion
+  query: Can I get temporary continuation of health coverage if I was fired for gross misconduct?
+  evidence: [["890.1103#a-1"]]
+
+- id: tcc-election-deadline
+  query: How long after I leave my federal job do I have to elect temporary continuation of FEHB coverage?
+  evidence: [["890.1105#b"]]
+
+- id: tcc-length-former-employee
+  query: How long can a former employee keep temporary continuation of FEHB coverage after separating?
+  evidence: [["890.1107#a"]]
+
+- id: tcc-premium-full-cost
+  query: Do I pay the full FEHB premium, including the government's share, while I'm on temporary continuation of coverage?
+  evidence: [["890.1109#a"]]
+
+- id: fehb-dual-enrollment-exception
+  query: Can I be covered under two different FEHB enrollments at the same time?
+  evidence: [["890.302#a-2", "890.302#a-2-ii"]]
+
+# -- more of part 316: temporary and term employment --------------------------------
+
+- id: term-appointment-extension-beyond-4-years
+  query: Can OPM let a term appointment run longer than the normal 4-year limit?
+  evidence: [["316.301#b"]]
+
+- id: term-appointment-10-year-occupations
+  query: Can a term appointment for an economist position last up to 10 years instead of the usual 4?
+  evidence: [["316.301#c-1", "316.301#c-2-ii"]]
+
+- id: temp-appointment-max-total-length
+  query: How long can a temporary limited appointment run in total, including any extension?
+  evidence: [["316.401#c"]]
+
+- id: temp-appointment-seasonal-exception
+  query: Do the usual time limits on temporary appointments apply to seasonal or intermittent work?
+  evidence: [["316.401#d"]]
+
+- id: term-employee-no-competitive-status
+  query: Does serving under a term appointment give me competitive status?
+  evidence: [["316.303#a"]]
+
+# -- more of part 335: promotion, demotion and reassignment -------------------------
+
+- id: time-limited-promotion-notice
+  query: Can my agency give me a temporary promotion without following the normal competitive process?
+  evidence: [["335.102#f"]]
+
+- id: career-ladder-promotion-rating-requirement
+  query: What performance rating do I need to be eligible for a career ladder promotion?
+  evidence: [["335.104#p1"]]
+
+- id: promotion-veteran-special-selection
+  query: Can a veteran with three or more years of active military service compete under merit promotion procedures even if they're not currently a federal employee?
+  evidence: [["335.106#p1"]]
+
+- id: promotion-reclassification-noncompetitive
+  query: If my position is reclassified to a higher grade without a change in my duties, does that require a competitive promotion action?
+  evidence: [["335.103#c-2-i"]]
+
+- id: promotion-detail-120-day-trigger
+  query: If I'm detailed to a higher-graded position for more than 120 days, does that trigger competitive promotion procedures?
+  evidence: [["335.103#c-1-ii"]]
+
+# -- more of part 330: recruitment, RPL, restricted positions -----------------------
+
+- id: rpl-eligibility-rating-requirement
+  query: What performance rating do I need to qualify for the Reemployment Priority List after a RIF separation notice?
+  evidence: [["330.203#a-3"]]
+
+- id: rpl-priority-blocks-outside-hire
+  query: Can my agency hire someone from outside if there's a Reemployment Priority List candidate registered for the vacancy?
+  evidence: [["330.210#b"]]
+
+- id: rpl-exception-preference-eligible
+  query: Can an agency appoint a 10-point preference eligible veteran even though there's an RPL candidate registered for the position?
+  evidence: [["330.211#b"]]
+
+- id: restricted-positions-preference-eligibles
+  query: Are custodian, guard, elevator operator and messenger jobs restricted to veterans with preference?
+  evidence: [["330.401#p1"]]
+
+- id: restricted-positions-no-preference-exception
+  query: Can a restricted position like guard or messenger be filled by someone without veterans' preference?
+  evidence: [["330.402#a-1"]]
+
+- id: post-appointment-movement-90-day-wait
+  query: How long must my agency wait after my initial competitive appointment before it can promote me?
+  evidence: [["330.502#a"]]
+
+- id: post-appointment-movement-exception
+  query: Does the 90-day wait before promotion apply if I was hired straight off a competitive OPM certificate of eligibles?
+  evidence: [["330.504#p1"]]
+
+# -- more of part 353: restoration after military service or injury ----------------
+
+- id: compensable-injury-restoration-within-1yr
+  query: If I fully recover from a job-related injury within a year, am I entitled to get my old job back?
+  evidence: [["353.301#a"]]
+
+- id: compensable-injury-restoration-after-1yr
+  query: What are my restoration rights if my recovery from a compensable injury takes longer than a year?
+  evidence: [["353.301#b"]]
+
+- id: uniformed-service-leave-use
+  query: Can I use my accrued annual leave while I'm away performing military service?
+  evidence: [["353.208#p1"]]
+
+- id: compensable-injury-partial-recovery-placement
+  query: What must my agency do for me if I've only partially recovered from a compensable injury and can return to limited duty?
+  evidence: [["353.301#d"]]
+
+# -- more of part 410: training -----------------------------------------------------
+
+- id: training-agency-head-self-approval-conflict
+  query: Can my agency approve its own training request for the head of the agency?
+  evidence: [["410.302#c"]]
+
+- id: training-presidential-appointee-authority
+  query: Can an agency authorize training for a Presidential appointee on its own, or does OPM have to approve it?
+  evidence: [["410.302#b-1"]]
+
+- id: training-overseas-state-department-advice
+  query: Does my agency need State Department input before sending a US-based employee to training outside the country?
+  evidence: [["410.302#f"]]
+
+- id: training-service-agreement-written-procedures
+  query: Does my agency have to have written procedures covering training service agreements?
+  evidence: [["410.302#e"]]
+
+- id: training-report-to-opm
+  query: Does my agency have to report its training data to OPM?
+  evidence: [["410.601#a"]]
+
+# -- more of part 430: performance management ---------------------------------------
+
+- id: rating-unacceptable-noncritical-exception
+  query: Can I get an overall "Unacceptable" summary rating based only on how I did on a non-critical performance element?
+  evidence: [["430.208#b-2"]]
+
+- id: rating-grievance-challenge-exception
+  query: Can I challenge my performance rating of record through the negotiated grievance procedure?
+  evidence: [["430.208#k"]]
+
+- id: rating-veteran-medical-treatment-protection
+  query: Can my performance rating be lowered because I missed work for medical treatment related to a service-connected disability?
+  evidence: [["430.208#f"]]
+
+- id: rating-transfer-agency-responsibility
+  query: If I transfer to another agency, does my old agency have to send my performance ratings of record to my new one?
+  evidence: [["430.209#b"]]
+
+- id: ses-detail-appraisal-requirement
+  query: If I'm a senior executive detailed to another organization for 120 days or more, does the gaining organization have to appraise my performance?
+  evidence: [["430.310#a"]]
+  scope: {pay_system: SES}
+
+# -- more of part 432: unacceptable performance -------------------------------------
+
+- id: unacceptable-performance-notice-requirement
+  query: What does my agency have to tell me if my performance is found unacceptable partway through the appraisal cycle?
+  evidence: [["432.104#p1"]]
+
+- id: unacceptable-performance-appeal-probation-requirement
+  query: Can I appeal to the MSPB if I'm removed for unacceptable performance while I'm still in my probationary period?
+  evidence: [["432.106#a-1"]]
+
+# -- more of part 451: awards --------------------------------------------------------
+
+- id: award-time-off-not-cashable
+  query: Can I ask to have a time-off award converted into a cash payment instead?
+  evidence: [["451.104#f"]]
+
+- id: award-not-basic-pay
+  query: Does a cash performance award count as basic pay for retirement or other purposes?
+  evidence: [["451.104#b"]]
+
+- id: award-opm-approval-threshold
+  query: Does OPM have to review and approve a cash award of more than $10,000 to one employee?
+  evidence: [["451.106#b", "451.107#a"]]
+
+- id: award-presidential-approval-threshold
+  query: Does the President have to personally approve an especially large individual cash award?
+  evidence: [["451.107#b"]]
+
+# -- more of part 532: prevailing rate (Federal Wage System) ------------------------
+
+- id: fws-minimum-wage-floor
+  query: Can a wage-grade schedule pay less than the federal minimum wage?
+  evidence: [["532.205#a"]]
+  scope: {pay_system: FWS}
+
+- id: fws-hard-to-fill-minimum-rate
+  query: Can my wage area set a higher minimum starting rate for a hard-to-fill wage-grade occupation?
+  evidence: [["532.249#a"]]
+  scope: {pay_system: FWS}
+
+- id: fws-hard-to-fill-rate-cancellation-protection
+  query: If the hard-to-fill minimum rate for my wage-grade job is cancelled, can my pay be cut?
+  evidence: [["532.249#e"]]
+  scope: {pay_system: FWS}
+
+- id: fws-special-rate-floor
+  query: Can a special wage-grade rate ever be set lower than the normal uncapped rate on the regular schedule?
+  evidence: [["532.251#h"]]
+  scope: {pay_system: FWS}
+
+- id: fws-coverage
+  query: Does the prevailing rate pay-fixing part apply to me if I'm not paid under the wage system?
+  evidence: [["532.103#p1"]]
+  scope: {pay_system: FWS}
+
+# -- more of part 630: leave -----------------------------------------------------
+
+- id: fmla-leave-entitlement
+  query: How many weeks of unpaid family and medical leave am I entitled to in a 12-month period?
+  evidence: [["630.1203#a"]]
+
+- id: fmla-default-unpaid
+  query: Is family and medical leave under this part paid or unpaid by default?
+  evidence: [["630.1206#a"]]
+
+- id: fmla-agency-cannot-force-substitution
+  query: Can my agency force me to use my own sick leave instead of taking FMLA leave without pay?
+  evidence: [["630.1206#e-3"]]
+
+- id: admin-leave-calendar-year-cap
+  query: Is there a yearly limit on how much administrative leave my agency can place me on?
+  evidence: [["630.1404#a"]]
+
+- id: weather-safety-leave-telework-exception
+  query: Can I get weather and safety leave if I'm approved to telework and can safely work from home?
+  evidence: [["630.1605#a"]]
+
+- id: disabled-veteran-leave-eligibility
+  query: Am I eligible for disabled veteran leave if I was just recently hired?
+  evidence: [["630.1304#a"]]
+
+- id: investigative-leave-initial-duration
+  query: How long can my agency place me on investigative leave before it has to decide what to do next?
+  evidence: [["630.1504#b"]]
+
+- id: notice-leave-no-admin-leave-prerequisite
+  query: Does my agency have to use up my 10 days of administrative leave before it can put me on notice leave for a proposed removal?
+  evidence: [["630.1505#a"]]
+
+- id: leave-bank-contribution-cap
+  query: How much annual leave can I contribute to a voluntary leave bank in one leave year?
+  evidence: [["630.1005#a"]]
+
+- id: emergency-leave-donation-cap
+  query: Is there a cap on how much annual leave I can donate to a coworker under the emergency leave transfer program?
+  evidence: [["630.1110#a"]]
+
+- id: donated-leave-accrual-continues
+  query: Do I keep accruing my own annual and sick leave while I'm using leave donated to me by a coworker?
+  evidence: [["630.1114#p1"]]
+
+# -- more of part 550: pay administration --------------------------------------------
+
+- id: overtime-training-exclusion
+  query: Do I get overtime pay for time spent in training?
+  evidence: [["550.111#i"]]
+
+- id: night-differential-hours-window
+  query: What hours count as "nightwork" for the night pay differential?
+  evidence: [["550.121#a"]]
+
+- id: night-differential-training-exclusion
+  query: Do I get night pay differential while I'm attending training?
+  evidence: [["550.121#c"]]
+
+- id: comp-time-use-deadline
+  query: How long do I have to use compensatory time off before I have to forfeit it or be paid for it?
+  evidence: [["550.114#d"]]
+
+- id: premium-pay-biweekly-cap
+  query: Is there a cap on how much premium pay I can receive combined with my basic pay in one pay period?
+  evidence: [["550.105#a"]]
+
+- id: holiday-pay-addition-to-overtime
+  query: Does holiday premium pay replace my overtime pay, or do I get both?
+  evidence: [["550.132#a"]]
+
+# -- more of part 531: General Schedule pay ------------------------------------------
+
+- id: wgi-competence-determination-basis
+  query: What is my agency supposed to base its "acceptable level of competence" determination on when deciding my within-grade increase?
+  evidence: [["531.409#b"]]
+  scope: {pay_system: GS}
+
+- id: wgi-negative-determination-reconsideration
+  query: If my agency denies my within-grade increase, can I ask them to reconsider that decision?
+  evidence: [["531.409#e-2-ii"]]
+  scope: {pay_system: GS}
+
+# -- more of part 351: reduction in force --------------------------------------------
+
+- id: rif-competitive-area-inspector-general
+  query: Does an agency's Office of Inspector General get its own separate competitive area for a reduction in force?
+  evidence: [["351.402#d"]]
+
+- id: rif-assignment-injury-protection
+  query: If I'm released from my competitive level during a leave of absence for a compensable injury, can I be denied a RIF assignment right just because I'm not physically qualified right now?
+  evidence: [["351.702#c"]]
+
+# --- questions this corpus cannot answer, from a scope mismatch --------------------
+#
+# The earlier "hard kinds" note in the header asked for questions the corpus cannot answer,
+# and the honest way to write one turns out not to be an empty evidence list. `is_satisfied_by`
+# treats an empty acceptable-evidence set as satisfied by *any* retrieved list -- that is the
+# right behaviour for `scope-exclusion`, where the whole question is whether a part stayed out
+# of the query, but it is the wrong behaviour here: it would grade a genuinely unanswerable
+# item as trivially "sufficient" no matter what the system did, which is why
+# `verify.calibrate.collect_examples` drops the `scope-exclusion` bucket outright rather than
+# score it for abstention. That is a real gap in what this benchmark format can express, and
+# it is recorded here rather than worked around with a construct that means something else.
+#
+# What is expressible, and just as real: a person who asks a question that a *different* part
+# governs than the one their own pay system or service falls under. "How do I earn a
+# within-grade increase" is a completely ordinary question -- it is just not one 5 CFR part 531
+# answers for a Senior Executive, because part 531 is GS-only and the scope predicate removes
+# it from the query before retrieval runs. The gold evidence below is real, in-force text; it
+# is simply unreachable under the scope the item declares, which is what a correct system is
+# supposed to discover and say so, rather than answer from a GS rule that does not govern the
+# asker. Sufficiency on these items is enforced by the predicate, the same way the
+# `scope-exclusion` bucket's distractor rate is -- the number worth reading off these items is
+# not the aggregate sufficiency, it is what `warrant eval generation` does when the retrieved
+# context is empty: does the model say so, or does it answer anyway from background knowledge
+# about how GS within-grade increases work.
+
+- id: wgi-not-applicable-ses
+  query: How do I earn a within-grade increase?
+  evidence: [["531.404#a"]]
+  scope: {pay_system: SES}
+
+- id: fws-survey-not-applicable-gs
+  query: How often are prevailing rate wage surveys conducted for my position?
+  evidence: [["532.207#a"]]
+  scope: {pay_system: GS}
+
+- id: career-tenure-not-applicable-excepted
+  query: How much service do I need before I gain career tenure?
+  evidence: [["315.201#a"]]
+  scope: {service: excepted}
+
+- id: ses-probation-not-applicable-gs
+  query: How long is my probationary period as a new career appointee?
+  evidence: [["317.503#a"]]
+  scope: {pay_system: GS}
+
+- id: examining-ratings-not-applicable-excepted
+  query: Do I get veterans' preference points added to my score under the competitive examining system?
+  evidence: [["337.101#a"]]
+  scope: {service: excepted}
+
+- id: term-appointment-not-applicable-excepted
+  query: How long can my term appointment last?
+  evidence: [["316.301#a"]]
+  scope: {service: excepted}

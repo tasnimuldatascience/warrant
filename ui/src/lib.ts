@@ -165,6 +165,24 @@ export const AUTHORITY: Record<number, string> = {
   5: "printed record",
 };
 
+// -- regulation typography ---------------------------------------------------------------
+
+/**
+ * Split a leading paragraph designator off the body of the sentence it introduces.
+ *
+ * CFR text is not set as run-on prose -- "(a)", "(b)(1)", "(c)(2)(i)" mark a paragraph's
+ * place in the outline and are conventionally set in the margin, not run into the line. The
+ * pattern is one or more parenthesised alphanumeric groups at the very start of the chunk;
+ * eCFR text always begins this way when the chunk boundary is a paragraph.
+ */
+const DESIGNATOR = /^((?:\([A-Za-z0-9]{1,4}\))+)\s*/;
+
+export function splitDesignator(text: string): { designator: string | null; body: string } {
+  const m = DESIGNATOR.exec(text);
+  if (!m || !m[1]) return { designator: null, body: text };
+  return { designator: m[1], body: text.slice(m[0].length) };
+}
+
 // -- react helpers -----------------------------------------------------------------------
 
 export type Async<T> =
