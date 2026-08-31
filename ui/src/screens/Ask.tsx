@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useCorpus } from "../app";
-import { useAsk, type AskState } from "../ask";
-import { api, type AskParams, type SectionVersion, type StreamEvidence } from "../api";
+import { useAsk, type AskState, type FollowupTurn } from "../ask";
+import { api, type AskParams, type Evidence, type SectionVersion, type StreamEvidence } from "../api";
 import {
   AUTHORITY,
   addDays,
@@ -621,7 +621,220 @@ function Result({
       {/* -- claims ---------------------------------------------------------------------- */}
       <SectionLabel n="03">answer</SectionLabel>
       <Claims state={state} />
+
+      {/* -- follow-up --------------------------------------------------------------------
+          Only once this exchange has a trace to pin to. Not a chat window: every turn below
+          answers from exactly the evidence ledger above, and the pinned as-of is restated on
+          each one rather than trusted to memory. */}
+      {state.done?.trace_id && state.evidence.length ? (
+        <Followups state={state} parentAsOf={state.params?.as_of ?? asOf} />
+      ) : null}
     </>
+  );
+}
+
+// -- follow-up ------------------------------------------------------------------------------
+
+function Followups({ state, parentAsOf }: { state: AskState; parentAsOf: string }) {
+  const { askFollowup, widen } = useAsk();
+  const [q, setQ] = useState("");
+  const asking = state.followups.some((f) => f.status === "asking" || f.status === "widening");
+
+  function submit(e?: React.FormEvent) {
+    e?.preventDefault();
+    const text = q.trim();
+    if (!text || asking) return;
+    askFollowup(text);
+    setQ("");
+  }
+
+  return (
+    <>
+      <SectionLabel n="04">follow-up</SectionLabel>
+      <p className="hint" style={{ maxWidth: "44rem" }}>
+        Answered from the evidence ledger above, pinned as of{" "}
+        <strong className="mono">{parentAsOf}</strong> — no new retrieval happens by default.
+        A different date or scope is a new question, not a follow-up: change the form above
+        and ask again rather than have a turn quietly answer from somewhere else.
+      </p>
+
+      {state.followups.length ? (
+        <div className="followups">
+          {state.followups.map((f) => (
+            <FollowupItem
+              key={f.id}
+              turn={f}
+              parentAsOf={parentAsOf}
+              onWiden={(chunkId) => widen(f.id, chunkId)}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      <form className="followup-form" onSubmit={submit} noValidate>
+        <Field label="ask a follow-up" hint="answers only from the evidence already retrieved above">
+          {(id) => (
+            <textarea
+              id={id}
+              className="textarea"
+              rows={2}
+              value={q}
+              maxLength={512}
+              spellCheck
+              disabled={asking}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) submit();
+              }}
+              placeholder="e.g. what's the exception in (b)?"
+            />
+          )}
+        </Field>
+        <button
+          className="btn followup-form__go"
+          type="submit"
+          disabled={!q.trim() || asking}
+        >
+          {asking ? "asking…" : "ask"}
+        </button>
+      </form>
+    </>
+  );
+}
+
+function FollowupItem({
+  turn,
+  parentAsOf,
+  onWiden,
+}: {
+  turn: FollowupTurn;
+  parentAsOf: string;
+  onWiden: (chunkId: string) => void;
+}) {
+  return (
+    <article className="followup">
+      <p className="followup__q">{turn.question}</p>
+      <div className="followup__pin">
+        <span>
+          as of <strong className="mono">{turn.asOf || parentAsOf}</strong>
+        </span>
+        <span className="dim">the pinned evidence, not a new search</span>
+        {turn.status === "answered" ? <Tag kind="ok">answered</Tag> : null}
+        {turn.status === "insufficient" ? <Tag kind="warn">insufficient</Tag> : null}
+        {turn.status === "failed" ? <Tag kind="stamp">refused</Tag> : null}
+        {turn.status === "asking" ? <span className="dim">answering…</span> : null}
+        {turn.status === "widening" ? <span className="dim">fetching…</span> : null}
+      </div>
+
+      <div className="followup__body">
+        {turn.status === "failed" && turn.error ? (
+          <Refusal status={turn.error.status} detail={turn.error.detail}
+                   retryAfter={turn.error.retryAfter} />
+        ) : null}
+
+        {turn.claims.length ? (
+          <div>
+            {turn.claims.map((c, i) => (
+              <div
+                className={`claim${c.grounded ? "" : " claim--ungrounded"}`}
+                key={i}
+                style={{ animationDelay: `${i * 45}ms` }}
+              >
+                <span className="claim__mark" aria-hidden="true">
+                  {c.grounded ? "▪" : "△"}
+                </span>
+                <div>
+                  <p className="claim__text">{c.text}</p>
+                  <div className="claim__cites">
+                    <span className="label" style={{ alignSelf: "center", marginRight: "0.2rem" }}>
+                      {c.grounded ? "grounded in" : "cites"}
+                    </span>
+                    {c.citations.map((cit) => (
+                      <a
+                        className="cite"
+                        key={cit.version_id}
+                        href={`#/timeline/${encodeURIComponent(sectionOf(cit.version_id))}/${cit.version_id.split("@")[1] ?? ""}`}
+                      >
+                        {cit.version_id}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {turn.status === "insufficient" && !turn.claims.length ? (
+          <Note
+            kind="warn"
+            label="insufficient"
+            title="The pinned evidence doesn't answer this."
+            detail={
+              turn.widen.length
+                ? "Something the pinned text refers to was never retrieved. Fetch it below, or ask a different question of the evidence above."
+                : "Nothing in the pinned evidence points anywhere else either. A wider answer needs a new question above, not a follow-up."
+            }
+          />
+        ) : null}
+
+        {turn.widen.length ? (
+          <div className="followup__widen">
+            <span className="label">referenced but not retrieved</span>
+            {turn.widen.map((w) => (
+              <button
+                key={w.chunk_id}
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => onWiden(w.chunk_id)}
+                disabled={turn.status === "widening"}
+              >
+                {turn.status === "widening" ? "fetching…" : `fetch ${w.text || w.chunk_id} →`}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {turn.widened.length ? (
+          <div style={{ marginTop: "0.65rem" }}>
+            {turn.widened.map((e) => (
+              <WidenedRow key={e.version_id} ev={e} />
+            ))}
+            <p className="hint" style={{ marginTop: "0.4rem" }}>
+              Fetched, not yet answered from — ask again to use it.
+            </p>
+          </div>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function WidenedRow({ ev }: { ev: Evidence }) {
+  return (
+    <div className="ev" style={{ borderBottom: 0, padding: "0.6rem 0" }}>
+      <span className="ev__rank" aria-hidden="true">
+        +
+      </span>
+      <div>
+        <div className="ev__meta">
+          <a
+            className="ev__id"
+            href={`#/timeline/${encodeURIComponent(ev.section_id)}/${ev.valid_from}`}
+          >
+            § {ev.chunk_id}
+          </a>
+          {ev.heading ? <span className="ev__heading">{ev.heading}</span> : null}
+          <Tag kind="accent">fetched by widen</Tag>
+        </div>
+        <RegText text={ev.text} className="ev__text" />
+        <div className="ev__foot">
+          <span>
+            {longDate(ev.valid_from)} → {ev.valid_to ? longDate(ev.valid_to) : "in force"}
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
 

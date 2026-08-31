@@ -63,7 +63,7 @@ from ..observe.logging import trace_id as _trace_id
 from ..retrieve.dense import DenseIndex, uncovered
 from ..retrieve.hybrid import Retriever
 from ..retrieve.scope import PART_RESTRICTIONS, Scope
-from . import guard
+from . import followup, guard
 from . import metrics as _metrics
 from .cache import cache_key
 
@@ -297,6 +297,47 @@ class HealthResponse(BaseModel):
 
     status: str
     uptime_s: float
+
+
+class WidenOffer(BaseModel):
+    """A chunk the pinned evidence *references* and does not hold.
+
+    Offered rather than fetched. 77.3% of evidence sets carry at least one of these, so
+    silently pulling them in would quietly change what a turn was answered from -- which is
+    the whole thing an exchange pins down.
+    """
+
+    chunk_id: str
+    text: str
+
+
+class FollowupResponse(BaseModel):
+    """One turn answered from an exchange's pinned evidence.
+
+    ``as_of`` is echoed on every turn on purpose. It is the field a chat interface would let
+    drift, and drift here is the wrong-version failure the as-of predicate is worth 96.1
+    points against.
+    """
+
+    trace_id: str | None = None
+    parent_trace_id: str
+    question: str
+    as_of: str
+    scope: str
+    #: "answered" from the pinned set, or "insufficient" -- the generator abstained and the
+    #: references it could not follow are offered in `widen`.
+    kind: str
+    abstained: bool
+    parse_failed: bool | None
+    claims: list[ClaimView] = Field(default_factory=list)
+    widen: list[WidenOffer] = Field(default_factory=list)
+
+
+class WidenResponse(BaseModel):
+    trace_id: str | None = None
+    parent_trace_id: str
+    added: Evidence
+    pinned_count: int
 
 
 class ReadyResponse(BaseModel):
@@ -542,7 +583,7 @@ def _route(request: Request) -> str:
     return getattr(route, "path", None) or "unmatched"
 
 
-def _record(rt: Runtime, trace: Any, answer: Any = None) -> str | None:
+def _record(rt: Runtime, trace: Any, answer: Any = None, context: Any = None) -> str | None:
     """Persist one request, and never fail the request because of it.
 
     An audit trail that can take the service down is a liability rather than an asset, so a
@@ -568,7 +609,7 @@ def _record(rt: Runtime, trace: Any, answer: Any = None) -> str | None:
                 "claims": [{"text": c.text, "evidence": list(c.evidence),
                             "grounded": c.grounded} for c in answer.claims],
             }
-        tid = traces.record(trace, answer=payload)
+        tid = traces.record(trace, answer=payload, context=context)
         # Bound to the context so every line written after this point -- including ones
         # from code that has never heard of the trace store -- carries the id a user can
         # quote back. A request rejected before this point has a request id and no trace
@@ -622,7 +663,11 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
     # 429 still carries its CORS headers and its X-Request-ID -- a rejection the browser
     # cannot read, or that a user cannot quote, is a rejection nobody can act on.
     app.add_middleware(guard.RateLimitMiddleware, answer=guards.answer,
-                       read=guards.read, enabled=guards.enabled)
+                       read=guards.read, enabled=guards.enabled,
+                       # A follow-up costs a generation slot exactly like /api/ask. A widen
+                       # is a single indexed lookup -- no ranking, no model -- so it stays in
+                       # the read bucket by not appearing here.
+                       answer_paths=("/api/ask", "/api/ask/followup"))
     app.add_middleware(
         CORSMiddleware, allow_origin_regex=LOCAL_ORIGIN_RE, allow_credentials=False,
         allow_methods=["GET", "OPTIONS"], allow_headers=["*"],
@@ -1063,6 +1108,82 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
             # one delivery at the end -- the exact thing this endpoint exists to avoid.
             "X-Accel-Buffering": "no",
         })
+
+    # -- follow-ups -------------------------------------------------------------
+
+    @app.get("/api/ask/followup", response_model=FollowupResponse)
+    async def ask_followup(request: Request, trace_id: str = Query(max_length=64),
+                           question: guard.Question = guard.QuestionParam
+                           ) -> FollowupResponse:
+        """Answer from an exchange's already-retrieved evidence, at its already-fixed date.
+
+        There is no ``as_of`` parameter here, and that omission is the design. A follow-up
+        cannot be answered under a different date than the turn it follows, because there is
+        no channel through which a different date could arrive -- rather than because some
+        code remembered to copy the old one forward.
+        """
+        if not rt.generate:
+            raise HTTPException(503, "generation is off on this server")
+        q = question.text
+
+        def _load():
+            rt.read_only()
+            exchange = followup.load_exchange(rt.traces, trace_id)
+            return exchange, followup.excerpts_for_exchange(rt.store, exchange, q)
+
+        try:
+            exchange, excerpts = await anyio.to_thread.run_sync(_load)
+        except followup.NoSuchExchange as exc:
+            raise HTTPException(404, f"no such exchange: {exc}") from exc
+        if not excerpts:
+            raise HTTPException(409, "the parent turn retrieved no evidence to follow up from")
+
+        prompt = guard.bound_excerpts(excerpts)
+        prompt.cost().check(GENERATE_DEADLINE_S)
+        answer = await _generate_answer(rt, q, prompt.excerpts, as_of=exchange.as_of,
+                                        scope=exchange.scope,
+                                        deadline=request.state.deadline)
+        result = followup.finish_followup(exchange, q, answer, store=rt.store)
+        guard.check_answer_against(rt.store, answer, as_of=exchange.as_of,
+                                   retrieved=[v for v, _, _ in prompt.excerpts])
+        tid = _record(rt, result.trace, answer=answer,
+                      context=followup.trace_context(exchange, result.kind))
+        return FollowupResponse(
+            trace_id=tid, parent_trace_id=exchange.trace_id, question=q,
+            as_of=exchange.as_of, scope=exchange.scope, kind=result.kind,
+            abstained=answer.abstained, parse_failed=answer.parse_failed,
+            claims=[ClaimView(text=c.text, grounded=c.grounded, citations=[
+                Citation(version_id=vid, span=None if sp is None else
+                         SpanView(start=sp.start, end=sp.end, score=round(sp.score, 3)))
+                for vid, sp in c.spans.items()]) for c in answer.claims],
+            widen=[WidenOffer(**o) for o in followup.widenable(result.dangling)],
+        )
+
+    @app.get("/api/ask/widen", response_model=WidenResponse)
+    def ask_widen(trace_id: str = Query(max_length=64),
+                  chunk_id: str = Query(max_length=64)) -> WidenResponse:
+        """Pull one referenced chunk into an exchange, resolved at *that exchange's* date.
+
+        A single indexed lookup, never a search and never "now": the same reference resolves
+        to different versions from two exchanges pinned either side of an amendment, which is
+        the correct behaviour and the reason this is not just a fetch by id.
+        """
+        rt.read_only()
+        try:
+            exchange = followup.load_exchange(rt.traces, trace_id)
+        except followup.NoSuchExchange as exc:
+            raise HTTPException(404, f"no such exchange: {exc}") from exc
+        try:
+            version_id, widened = followup.widen(rt.store, exchange, chunk_id)
+        except KeyError as exc:
+            raise HTTPException(
+                404, f"nothing by {chunk_id!r} was in force on {exchange.as_of}") from exc
+        trace = followup.exchange_trace(exchange.widened("", widened), exchange.question)
+        tid = _record(rt, trace,
+                      context=followup.trace_context(exchange, "widen", chunk_id=chunk_id))
+        row = _rows(rt.store, [version_id])[0]
+        return WidenResponse(trace_id=tid, parent_trace_id=exchange.trace_id,
+                             added=_evidence(row), pinned_count=len(widened))
 
     # -- version history --------------------------------------------------------
 

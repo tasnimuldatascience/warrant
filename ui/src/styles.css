@@ -1323,6 +1323,65 @@ code.cmd {
   color: var(--accent);
 }
 
+/* ----------------------------------------------------------------------------- follow-ups
+   A marginal note on the record, not a chat bubble: a rule down the left, the pinned as-of
+   stated in mono on every turn, no avatar, no name, nothing that implies a second speaker. */
+
+.followups {
+  margin-top: 0.4rem;
+}
+.followup {
+  position: relative;
+  padding: 0.95rem 0 0.95rem 1.15rem;
+  border-left: 2px solid var(--rule-firm);
+  border-bottom: var(--hair) solid var(--rule);
+  animation: rise 0.32s var(--ease) both;
+}
+.followup:last-child {
+  border-bottom: 0;
+}
+.followup__q {
+  font-style: italic;
+  font-size: 1.08rem;
+  line-height: 1.5;
+  color: var(--ink);
+  max-width: 44rem;
+}
+.followup__pin {
+  margin-top: 0.3rem;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.7rem;
+  align-items: center;
+}
+.followup__body {
+  margin-top: 0.65rem;
+}
+.followup__widen {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+.followup-form {
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: var(--hair) solid var(--rule-firm);
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+.followup-form .field {
+  flex: 1;
+}
+.followup-form__go {
+  margin-top: 1.55rem;
+}
+
 /* -------------------------------------------------------------------------- stage meter */
 
 .meter {

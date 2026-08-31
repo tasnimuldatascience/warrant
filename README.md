@@ -83,6 +83,13 @@ reported from `test` — the two commands default to opposite sides.
 Paired and section-clustered — 229 temporal items come from 47 sections, so items are not
 independent trials and an item-level bootstrap reports an interval roughly 3.5× too narrow.
 
+A fifth stage was measured and left off: fine-tuning the encoder on 493 mined triples moves
+the held-out split +0.9 on human and +1.3 on temporal, neither distinguishable from zero — and
+**53 of 114 mined items are contradictory**, the same question with two correct answers either
+side of an amendment, so the contrastive gradient largely cancels. That is the system's own
+premise defeating a standard technique, and it was visible in the data before a step ran.
+[results/eval-021](results/eval-021-finetuning.md).
+
 **Sufficiency alone would have called the as-of predicate useless.** With `final_k: 16`
 several versions of a section fit in the result list at once, so removing the predicate barely
 changes whether the right paragraph is present — it changes whether the *wrong* one is present

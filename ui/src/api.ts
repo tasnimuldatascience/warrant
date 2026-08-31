@@ -93,6 +93,50 @@ export interface ClaimView {
   citations: Citation[];
 }
 
+// -- follow-ups -------------------------------------------------------------------------
+//
+// A follow-up answers from the evidence a prior turn already pinned -- it takes a
+// `trace_id`, never an `as_of` or a scope, because there is no parameter through which a
+// later turn could smuggle in a different date. Changing the date or scope is not a
+// follow-up call at all; it is a new `/api/ask`.
+
+export interface WidenOffer {
+  chunk_id: string;
+  /** What the citation itself said -- "paragraph (b) of this section", "§ 630.310". */
+  text: string;
+}
+
+export interface FollowupResponse {
+  /** This turn's own trace id -- a follow-up is recorded and replayable like any other. */
+  trace_id: string | null;
+  parent_trace_id: string;
+  question: string;
+  /** The as-of this turn was answered under -- always the parent's, never re-resolved. */
+  as_of: string;
+  scope: string;
+  /** "answered": the pinned evidence covered it. "insufficient": it did not; see `widen`. */
+  kind: "answered" | "insufficient";
+  abstained: boolean;
+  parse_failed: boolean | null;
+  claims: ClaimView[];
+  /** References the pinned evidence makes that the pinned evidence does not satisfy. */
+  widen: WidenOffer[];
+}
+
+export interface WidenResponse {
+  trace_id: string | null;
+  parent_trace_id: string;
+  /**
+   * The one chunk `widen` fetched. Shown inline on the turn that asked for it, not merged
+   * into the evidence panel above -- the panel is the shared context every turn started
+   * from, and a turn that reached outside it says so rather than quietly redrawing the
+   * ledger everyone has already read.
+   */
+  added: Evidence;
+  /** How many chunks are now pinned for this exchange, including `added`. */
+  pinned_count: number;
+}
+
 export interface AskResponse {
   trace_id: string | null;
   question: string;
@@ -347,6 +391,21 @@ export const api = {
         service: p.service,
         generate: false,
       })}`,
+      signal,
+    ),
+
+  /**
+   * Answer `q` from `traceId`'s pinned evidence alone. No `as_of`, no scope -- the endpoint
+   * has no parameter for either, which is what makes "this turn quietly changed which law
+   * it's about" impossible to send, not merely unlikely.
+   */
+  askFollowup: (traceId: string, q: string, signal?: AbortSignal) =>
+    get<FollowupResponse>(`/api/ask/followup${query({ trace_id: traceId, q })}`, signal),
+
+  /** Fetch one named chunk into the pinned set. A lookup by address, never a search. */
+  widen: (traceId: string, chunkId: string, signal?: AbortSignal) =>
+    get<WidenResponse>(
+      `/api/ask/widen${query({ trace_id: traceId, chunk_id: chunkId })}`,
       signal,
     ),
 };
