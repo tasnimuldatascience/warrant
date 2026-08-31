@@ -1,0 +1,5 @@
+node_modules/
+
+# dist/ is deliberately NOT ignored. `serve/api.py` mounts <repo>/ui/dist, so a clone with
+# no node toolchain has to get a working interface out of the box; the build is part of the
+# shipped artefact, not a local by-product.

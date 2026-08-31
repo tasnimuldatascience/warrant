@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>warrant — 5 CFR, as it stood</title>
+    <meta
+      name="description"
+      content="A reading interface for bitemporal retrieval over 5 CFR: what the regulation
+               said on a chosen date, which stage produced it, and what it cost."
+    />
+    <!--
+      Inlined rather than a file in public/. `create_app` mounts exactly two things -- the
+      hashed bundle under /assets and index.html at / -- so any other absolute path in this
+      document 404s the moment the build is served by the API it was built for.
+    -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2312161a'/%3E%3Cpath d='M5 9h22M5 16h22M5 23h13' stroke='%23eceeef' stroke-width='2.2'/%3E%3Ccircle cx='24' cy='23' r='3.4' fill='%231a4f7a' stroke='%23eceeef' stroke-width='1.6'/%3E%3C/svg%3E"
+    />
+    <!--
+      Paints the first frame in the right scheme. The stylesheet defines the full palette on
+      bare :root, so this attribute only exists to honour a *stored* override before React
+      mounts; without it an explicit light choice flashes dark on a dark-scheme machine.
+    -->
+    <script>
+      try {
+        var t = localStorage.getItem("warrant.theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        /* private windows and blocked site data both throw here; the default is correct */
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <p style="font-family: Georgia, serif; padding: 2rem; max-width: 34rem">
+        This interface reads a live API and renders a Server-Sent Event stream, so it needs
+        JavaScript. The API itself does not: <code>/api/meta</code>,
+        <code>/api/section/{id}</code>, <code>/api/diff</code> and <code>/api/ask</code> are
+        plain JSON over GET, and <code>/api/docs</code> documents every one of them.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
