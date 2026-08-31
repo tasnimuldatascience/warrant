@@ -29,6 +29,60 @@ LEAD_IN = 1.1          #: quiet before the first word, so a viewer arrives befor
 TAIL = 2.6             #: the close holds, so a loop does not snap away from the URL
 
 
+#: Caption geometry. Two lines of ~42 characters is the width a player renders without
+#: shrinking the type or spilling out of the frame; a cue longer than that is split and the
+#: line's measured duration divided between the pieces by character count.
+CUE_CHARS, CUE_LINES = 42, 2
+
+
+def wrap(text: str, width: int = CUE_CHARS) -> list[str]:
+    """Greedy word wrap. A word wider than the measure gets its own line rather than a break."""
+    lines: list[str] = []
+    for word in text.split():
+        if lines and len(lines[-1]) + 1 + len(word) <= width:
+            lines[-1] += " " + word
+        else:
+            lines.append(word)
+    return lines
+
+
+def stamp(sec: float) -> str:
+    """SRT wants HH:MM:SS,mmm -- a comma before the milliseconds, not a period."""
+    ms = int(round(sec * 1000))
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def write_srt(manifest: list[dict], dest: pathlib.Path) -> int:
+    """A subtitle sidecar, off the same manifest the scene timings come from.
+
+    Not burned in: every claim in this film is already set as type on screen, so a burned
+    caption would print each sentence twice. The sidecar exists because YouTube indexes it,
+    and because a viewer who needs captions should not be handed a video that assumes hearing.
+
+    Reads the `caption` column rather than the spoken one. The voice needs numbers spelled
+    out, and a caption reading "nine thousand, seven hundred and thirty" beside a graphic
+    reading 9,730 looks like a transcription error.
+    """
+    cues: list[tuple[float, float, str]] = []
+    for m in manifest:
+        lines = wrap(m.get("caption") or m["text"])
+        chunks = [lines[i:i + CUE_LINES] for i in range(0, len(lines), CUE_LINES)]
+        weights = [sum(len(x) for x in c) for c in chunks]
+        t = m["start"]
+        for chunk, w in zip(chunks, weights, strict=True):
+            span = m["seconds"] * w / sum(weights)
+            cues.append((t, t + span, "\n".join(chunk)))
+            t += span
+
+    blocks = [f"{i}\n{stamp(a)} --> {stamp(b)}\n{text}\n"
+              for i, (a, b, text) in enumerate(cues, 1)]
+    dest.write_text("\n".join(blocks), encoding="utf-8")
+    return len(cues)
+
+
 def plan(manifest: list[dict]) -> tuple[list[dict], float]:
     """Give every line an absolute start, and every scene a start and an end."""
     t = LEAD_IN
@@ -84,6 +138,9 @@ def main() -> int:
     (MEDIA / "film.html").write_text(
         tpl.replace("/*__TIMELINE__*/", json.dumps({"scenes": scenes, "total": total})),
         encoding="utf-8")
+
+    n = write_srt(manifest, MEDIA / "warrant-film.srt")
+    print(f"  wrote media/warrant-film.srt  ({n} cues)")
 
     build_audio(manifest, total, MEDIA / "_film.wav")
     print("  audio track built")

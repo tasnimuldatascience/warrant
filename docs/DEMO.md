@@ -207,6 +207,7 @@ The five-switched-off slide is the one that gets a reply from an engineer. Give 
 | file | what it is |
 |---|---|
 | `warrant-film.mp4` | 1080p, 105s, **narrated** — the explainer, built typographically |
+| `warrant-film.srt` | its captions, 26 cues — a sidecar, not burned in |
 | `warrant-demo.mp4` | 1080p, 74s, captions burned in, **silent** — the screen recording |
 | `warrant-demo-narrated.mp4` | the same cut with a synthesised scratch track |
 | `warrant-demo.gif` | 14s, full frame — general purpose |
@@ -322,3 +323,11 @@ durations, so a real recording drops straight in.
 
 `edge-tts` is a **build-time** dependency for making a video. Nothing in `warrant` imports it,
 and no part of running the system needs it.
+
+**Captions are a sidecar, not burned in.** Every claim in this film is already set as type on
+screen; a burned caption would print each sentence twice. `warrant-film.srt` comes off the same
+manifest as the scene timings, so it cannot drift from the audio, and it reads a separate
+`caption` column rather than the spoken text — the voice needs numbers spelled out, and a
+caption reading *nine thousand, seven hundred and thirty* beside a graphic reading **9,730**
+looks like a transcription error. Upload it to YouTube rather than letting auto-captions guess
+at "bitemporal" and "5 CFR 575.110".
