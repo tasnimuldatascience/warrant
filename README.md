@@ -382,6 +382,13 @@ Not legal advice. Not a general web-scale RAG. Every architecture section is mar
 
 ## See it
 
+![warrant](media/warrant-demo.gif)
+
+*The same question at two dates; evidence cited before the prose arrives; a follow-up pinned
+to the first turn's date. Recorded against the running system — nothing staged.*
+
+
+
 `docs/DEMO.md` is a three-minute script with a shot list, and `scripts/demo.py` drives the
 whole sequence against a running server so a recording does not depend on typing:
 

@@ -1,0 +1,108 @@
+1
+00:00:00,000 --> 00:00:05,500
+This answers questions about US federal employment regulation.
+
+2
+00:00:05,500 --> 00:00:11,000
+That sounds narrow. Here is why it isn't: the law changes.
+
+3
+00:00:11,000 --> 00:00:17,500
+The same question, asked about two different dates, has two
+different correct answers.
+
+4
+00:00:17,500 --> 00:00:23,000
+This paragraph was amended. Both readings are right — one of
+them in 2024, the other one now.
+
+5
+00:00:23,000 --> 00:00:29,000
+Most retrieval systems give you one of those and never tell you
+which one you got.
+
+6
+00:00:29,000 --> 00:00:34,500
+Now watch the order things arrive in.
+
+7
+00:00:34,500 --> 00:00:40,000
+Nine thousand four hundred paragraphs were eligible. Sixteen
+came back, cited and readable, in under half a second.
+
+8
+00:00:40,000 --> 00:00:46,000
+The written answer takes about six more seconds, because a
+language model is generating it.
+
+9
+00:00:46,000 --> 00:00:52,000
+Most systems put a spinner over both and show you nothing.
+This one gives you the law first.
+
+10
+00:00:52,000 --> 00:00:57,500
+If you read regulation for a living, the citation is the answer.
+The paragraph is what you act on.
+
+11
+00:00:57,500 --> 00:01:03,000
+Now a follow-up — and notice the date is pinned to the
+question above.
+
+12
+00:01:03,000 --> 00:01:09,500
+Ask about 2019, then say "and what about the exception".
+A normal chatbot has to guess which year you meant.
+
+13
+00:01:09,500 --> 00:01:14,500
+Guess wrong and it quotes repealed law with total confidence.
+
+14
+00:01:14,500 --> 00:01:20,000
+So this endpoint has no date parameter at all. Not "we remember
+to pass it through" — there is no way to send a different one.
+
+15
+00:01:20,000 --> 00:01:25,000
+The conversation survives a reload, and the link can be sent
+to someone else.
+
+16
+00:01:25,000 --> 00:01:31,000
+And every stage recorded what it saw and what it cost.
+
+17
+00:01:31,000 --> 00:01:37,000
+So when the answer is wrong — and sometimes it will be — the
+question isn't "why did the AI hallucinate".
+
+18
+00:01:37,000 --> 00:01:42,000
+It's which stage lost the evidence. That has an answer.
+
+19
+00:01:42,000 --> 00:01:48,000
+One last thing. Five components in here are switched off:
+a reranker, an entailment verifier, a calibrated confidence model,
+
+20
+00:01:48,000 --> 00:01:54,000
+multi-hop retrieval, and a fine-tuned encoder. Each is built,
+tested, and disabled.
+
+21
+00:01:54,000 --> 00:02:00,000
+Each one has the p-value that decided it sitting next to the switch.
+I measured them and could not show they helped.
+
+22
+00:02:00,000 --> 00:02:06,000
+Shipping them on anyway would have been the easy version
+of this project.
+
+23
+00:02:06,000 --> 00:02:12,000
+Code, every measurement, and the ones that came out negative —
+the link is below.

@@ -195,3 +195,28 @@ the lexical stage at roughly three times the corpus — which is a better answer
 demos can give.
 
 The five-switched-off slide is the one that gets a reply from an engineer. Give it its time.
+
+---
+
+## What is already recorded
+
+`media/` holds a real capture of the terminal walkthrough, made with
+`scripts/record-demo.ps1` against a live server:
+
+| file | what it is |
+|---|---|
+| `warrant-demo.mp4` | 1080p, 78s, silent — the terminal demo end to end |
+| `warrant-demo.gif` | 16s, 960px — the streaming order, for LinkedIn's inline autoplay |
+| `warrant-demo.srt` | narration, timed to the script above |
+| `thumbnail.png` | 1280×720, built by `scripts/thumbnail.py` |
+
+The capture is silent on purpose: **record the voice-over separately** against the SRT and mux
+it, rather than narrating live. A live take ties the pacing of your sentences to the pacing of
+a language model, and one of those is not under your control.
+
+The mp4 is the terminal, not the browser — a screen recorder cannot drive the UI here. The
+browser segments in the script above still need recording by hand, and they are the ones worth
+doing well: the date-scrub cold open is the strongest fifteen seconds available.
+
+The thumbnail is drawn, not screenshotted. A downscaled UI screenshot is unreadable at the
+size a feed actually renders it, which is why most engineering thumbnails are.
