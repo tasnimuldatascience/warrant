@@ -415,10 +415,14 @@ class Entailer:
         Re-scoring the probe set at batch 7 instead of 16 moved logits by up to 0.014 and no
         argmax at all, so `batch_size` belongs in a trace beside the model name.
         """
-        import torch
-
+        # Before the torch import, not after. The empty case is the one a caller hits when an
+        # answer made no claims, and it must cost nothing -- a lexical-only install has no
+        # torch at all, so importing first turned "score nothing" into ModuleNotFoundError.
+        # The test asserting this exists; it was passing locally because the venv had torch.
         if not pairs:
             return []
+
+        import torch
         device = _resolve_device(self.device)
         tokenizer, model, order = _load(self.model_name, self.revision, device,
                                         self.deterministic)

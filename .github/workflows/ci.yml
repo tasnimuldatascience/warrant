@@ -130,7 +130,7 @@ jobs:
         # No corpus ships in the image, so /ready must say 503 while /health must not. That
         # asymmetry is the entire reason there are two probes, and it is worth asserting.
         run: |
-          docker run -d --name w -p 8000:8000 warrant:lexical
+          docker run -d --name warrant-smoke -p 8000:8000 warrant:lexical
           for i in $(seq 1 30); do
             curl -sf localhost:8000/health > /dev/null && break
             sleep 2
@@ -139,5 +139,5 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' localhost:8000/ready)
           echo "ready returned $code"
           test "$code" = "503"
-          docker logs w | tail -20
-          docker rm -f w
+          docker logs warrant-smoke | tail -20
+          docker rm -f warrant-smoke
