@@ -6,8 +6,15 @@
 
 [![license](https://img.shields.io/badge/license-MIT-22863a)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.12%20|%203.13-3776ab?logo=python&logoColor=white)](pyproject.toml)
-[![tests](https://img.shields.io/badge/tests-700%2B%20passing-22863a)](tests/)
+[![tests](https://img.shields.io/badge/tests-903%20passing-22863a)](tests/)
 [![corpus](https://img.shields.io/badge/corpus-13,212%20chunk%20versions%20|%2026%20CFR%20parts-5b8cff)](results/eval-004-held-out.md)
+
+### [&#9654;&nbsp; Watch the explainer &mdash; 3:43](https://youtu.be/Z7JcW5BF3bY)
+
+[![Warrant — the same question, two dates, two correct answers](media/thumbnail.png)](https://youtu.be/Z7JcW5BF3bY)
+
+*Why the date changes the answer, the request path end to end, the benchmark,
+and the five components that ship switched off.*
 
 </div>
 
@@ -386,18 +393,33 @@ Not legal advice. Not a general web-scale RAG. Every architecture section is mar
 
 ## See it
 
-![architecture](media/architecture.png)
+![warrant architecture](media/architecture.png)
 
-*The two shaded boxes are the two claims: the predicate gate, because pushing as-of and
-scope into the query rather than filtering after it is what makes an answer version-correct;
-and the trace, because it is what turns a wrong answer into an addressable one. Animated as
-[`warrant-architecture.gif`](media/warrant-architecture.gif). There is a narrated
-105-second explainer in [`warrant-film.mp4`](media/warrant-film.mp4), and an interface
-walkthrough in [`warrant-demo.mp4`](media/warrant-demo.mp4).*
+The whole system: five source tiers into a bitemporal store, the date pushed into the query
+as a predicate, lexical and dense retrieval fused by rank, and a trace id on every answer.
+
+### [▶ Watch the explainer — 3:43](https://youtu.be/Z7JcW5BF3bY)
+
+Narrated, and it makes the argument rather than touring the interface. Jump to:
+
+| | |
+|---|---|
+| **[0:36](https://youtu.be/Z7JcW5BF3bY?t=36)** | one question, two dates — the same paragraph, six words apart |
+| **[1:45](https://youtu.be/Z7JcW5BF3bY?t=105)** | the whole request path, stage by stage |
+| **[2:13](https://youtu.be/Z7JcW5BF3bY?t=133)** | which stage lost the evidence |
+| **[3:13](https://youtu.be/Z7JcW5BF3bY?t=193)** | five components, each with the p-value that switched it off |
+
+The whole path animates in
+[`warrant-architecture.mp4`](media/warrant-architecture.mp4) — blue marks the load-bearing
+legs, the ones the correctness claim rests on: the date reaching the store as a predicate
+rather than a filter applied afterwards, and the trace id that turns a wrong answer into an
+addressable one. Also as a [GIF](media/warrant-architecture.gif) for anywhere that will not
+take video. There is an interface walkthrough in
+[`warrant-demo.mp4`](media/warrant-demo.mp4).
 
 
 
-`docs/DEMO.md` is a three-minute script with a shot list, and `scripts/demo.py` drives the
+`docs/DEMO.md` carries the shot list and the post copy, and `scripts/demo.py` drives the
 whole sequence against a running server so a recording does not depend on typing:
 
 ```bash

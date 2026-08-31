@@ -1,4 +1,7 @@
-# Demo script — three minutes
+# Demo script
+
+**The film is published: https://youtu.be/Z7JcW5BF3bY**
+
 
 For a YouTube upload and a LinkedIn post. Written to be spoken, not read: short sentences,
 no adjectives doing work a number could do, and nothing claimed that the repository does not
@@ -163,18 +166,28 @@ the pinned date on the turn.
 > Warrant is a retrieval system over US federal employment regulation that answers **as of a
 > date** — and localizes every wrong answer to the pipeline stage responsible.
 >
-> 0:00 The same question, two dates, two correct answers
-> 0:40 Why the citations arrive before the prose
-> 1:15 Follow-ups that cannot drift to a different date
-> 1:45 Every version of a section, and which one was law
-> 2:10 Which stage is answerable for the answer
-> 2:45 The five components that ship switched off
+> 0:00 Confident answers, and a paragraph that changed
+> 0:19 Two clocks: when it was law, when the system believed it
+> 0:36 One question, two dates — the same paragraph, six words apart
+> 0:56 Different evidence admitted: 9,730 paragraphs, then 10,007
+> 1:10 The date is a filter in the query, not a hint in a prompt
+> 1:25 Build time: five sources, structural diff, bitemporal store
+> 1:45 Query time: the whole request path, stage by stage
+> 2:13 Which stage lost the evidence
+> 2:24 The benchmark, and why 29 items could not falsify anything
+> 2:46 Operations: two ids, and a gate set at the lower bound
+> 3:13 Five components that ship switched off
 >
-> Built on the eCFR point-in-time API. Bitemporal SQLite store, BM25 + dense retrieval fused by
-> reciprocal rank, predicates pushed into the query rather than filtered after it. 896 tests,
-> 21 measurement write-ups including the negative results.
+> Under it: the eCFR point-in-time API, a bitemporal SQLite store, BM25 + dense retrieval
+> fused by reciprocal rank, and predicates pushed into the query rather than filtered after
+> it. 903 tests, 21 measurement write-ups including the negative results.
 >
 > github.com/tasnimuldatascience/warrant
+
+The chapter marks above are cut against `warrant-film.mp4` as it actually runs (3:43), derived
+from the cue times in `warrant-film.srt`. **Re-derive them if the film is re-cut.** YouTube
+discards the entire chapter list if any single mark is invalid, so a stale timestamp past the
+end of the video does not degrade — it removes every chapter silently.
 
 ---
 
@@ -188,6 +201,20 @@ correct on its own throughput figures.
 
 Run `python scripts/demo.py` before filming. It prints both clocks side by side, so you will
 say the right one.
+
+The two paragraph counts the film narrates are the only figures in this document that no
+`results/` write-up backs, so they are reproduced here. Against `data/warrant.sqlite3`:
+
+```sql
+select count(*) from chunk
+where valid_from <= :d and (valid_to is null or valid_to > :d);
+-- 2024-06-01 -> 9730     2026-08-31 -> 10007     2024-01-01 -> 9670
+```
+
+The narration says *"as of 2024"* for 9,730, which is a mid-2024 date rather than 1 January —
+the January count is 9,670. Say the year loosely if asked; the number itself is exact. The
+10,007 is a snapshot of a moving figure and will drift on the next ingest, which is fine for a
+fixed recording and not fine to repeat as a current number later.
 
 Do not apologise for what is missing. If someone asks in the comments whether it scales, the
 answer is that the scale study is synthetic, it is written up, and the first thing to break is
@@ -206,15 +233,15 @@ The five-switched-off slide is the one that gets a reply from an engineer. Give 
 
 | file | what it is |
 |---|---|
-| `warrant-film.mp4` | 1080p, 105s, **narrated** — the explainer, built typographically |
-| `warrant-film.srt` | its captions, 26 cues — a sidecar, not burned in |
+| `warrant-film.mp4` | 1080p, 223s, **narrated** — the explainer: the argument, a worked example, both halves of the lifecycle, the benchmark and operations |
+| `warrant-film.srt` | its captions, 57 cues — a sidecar, not burned in |
 | `warrant-demo.mp4` | 1080p, 74s, captions burned in, **silent** — the screen recording |
 | `warrant-demo-narrated.mp4` | the same cut with a synthesised scratch track |
 | `warrant-demo.gif` | 14s, full frame — general purpose |
 | `warrant-linkedin.gif` | 14s, 1000×730, 2.9 MB — cropped to the content column |
-| `warrant-architecture.gif` | 13s, 1000×750, **1.4 MB** — the request path, animated |
-| `warrant-architecture.mp4` | the same, 1080p, 1.0 MB |
-| `architecture.html` | its source; re-record by pointing Playwright at it |
+| `warrant-architecture.gif` | 10.2s loop, 1400×873, 4.2 MB — the full request path, animated |
+| `warrant-architecture.mp4` | the same loop, 1080p, **1.0 MB** — LinkedIn autoplays this natively, and it beats a GIF |
+| `architecture.html` | its source, 1700×1060 — `python scripts/architecture.py` rebuilds the GIF, the mp4 and the still |
 | `warrant-demo.srt` | the same captions, as a sidecar for YouTube |
 | `thumbnail.png` | 1280×720, drawn by `scripts/thumbnail.py` |
 
@@ -241,6 +268,16 @@ The thumbnail is drawn rather than screenshotted: a downscaled UI screenshot is 
 the size a feed renders it, which is why most engineering thumbnails are.
 
 ### On the LinkedIn GIF specifically
+
+Legibility is not absolute type size, it is type size as a fraction of the canvas —
+everything scales together when the frame is resized. Node labels are 19px on a 1700px
+canvas, about 1.1% of the width, rendered out at 1400px: the reader gets roughly 15.6px,
+against 8.7px in the first cut of this diagram. Every box is sized against the longest
+string it carries rather than eyeballed, because a label that wraps mid-phrase reads as a
+broken line. The mp4 is the better post — 1.0 MB against 4.2, true 1080p rather than a 64-colour
+palette — but the GIF is comfortably under LinkedIn's limit and reads fine. Frame rate is
+what gives if it ever needs to be smaller, though not below 10 fps: GIF encodes deltas, so
+fewer frames means bigger deltas and 7 fps came out *larger* than 10.
 
 `warrant-linkedin.gif` is cropped to the content column and starts below the masthead, because
 a feed renders a GIF at roughly 500px wide and the full 1920px frame reduces the body text to
