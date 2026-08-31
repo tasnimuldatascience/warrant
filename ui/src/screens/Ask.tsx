@@ -19,6 +19,7 @@ import {
   today,
   useAsync,
   useNow,
+  useRoute,
 } from "../lib";
 import {
   Chips,
@@ -242,9 +243,35 @@ function TemporalHero({ onRun }: { onRun: (asOf: string) => void }) {
   );
 }
 
+/**
+ * `#/ask/<trace_id>` reopens a recorded exchange.
+ *
+ * The server could always do this -- an exchange *is* its trace id, traces persist, and
+ * `load_exchange` rebuilds the pinned set from one. The client was the only thing throwing
+ * the handle away, so a refresh lost the date, the evidence and every turn. Putting it in the
+ * hash costs nothing and buys two things at once: a conversation that survives a reload, and
+ * one that can be sent to someone else.
+ */
 export default function Ask() {
   const { meta, ready, clampDate } = useCorpus();
-  const { state, run, cancel, reset } = useAsk();
+  const { state, run, cancel, reset, reopen } = useAsk();
+  const [route, go] = useRoute();
+
+  // Reopen once, on the trace id in the hash. Keyed on the id rather than the route object so
+  // a re-render does not re-fetch, and guarded against the id we ourselves just wrote.
+  const linked = route.screen === "ask" ? (route.rest[0] ?? "") : "";
+  useEffect(() => {
+    if (linked && linked !== state.done?.trace_id) void reopen(linked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linked]);
+
+  // Publish the exchange to the hash once it has one, so a refresh or a shared link lands
+  // back here. Replaces rather than pushes: a follow-up is the same exchange, and every turn
+  // adding a history entry would make Back mean something no reader expects.
+  useEffect(() => {
+    const tid = state.done?.trace_id;
+    if (tid && tid !== linked) go("ask", tid);
+  }, [state.done?.trace_id, linked, go]);
 
   const [q, setQ] = useState(() => stored("warrant.q") ?? EXAMPLES[0]);
   const [asOf, setAsOf] = useState(() =>
@@ -730,15 +757,23 @@ function FollowupItem({
   return (
     <article className="followup">
       <p className="followup__q">{turn.question}</p>
+      {/* `pinned` lands before generation starts, so this line is complete the instant the
+          turn opens -- date, scope and how much evidence -- rather than waiting out the
+          whole answer to say what it was even answered from. */}
       <div className="followup__pin">
         <span>
           as of <strong className="mono">{turn.asOf || parentAsOf}</strong>
         </span>
-        <span className="dim">the pinned evidence, not a new search</span>
+        {turn.evidenceCount !== null ? (
+          <span>{num(turn.evidenceCount)} chunks pinned</span>
+        ) : (
+          <span className="dim">the pinned evidence, not a new search</span>
+        )}
         {turn.status === "answered" ? <Tag kind="ok">answered</Tag> : null}
         {turn.status === "insufficient" ? <Tag kind="warn">insufficient</Tag> : null}
         {turn.status === "failed" ? <Tag kind="stamp">refused</Tag> : null}
-        {turn.status === "asking" ? <span className="dim">answering…</span> : null}
+        {turn.status === "asking" ? <span className="dim">opening…</span> : null}
+        {turn.status === "generating" ? <span className="dim">generating…</span> : null}
         {turn.status === "widening" ? <span className="dim">fetching…</span> : null}
       </div>
 
@@ -746,6 +781,16 @@ function FollowupItem({
         {turn.status === "failed" && turn.error ? (
           <Refusal status={turn.error.status} detail={turn.error.detail}
                    retryAfter={turn.error.retryAfter} />
+        ) : null}
+
+        {/* No completion fraction to report honestly while a token budget is still being
+            spent, so this hatches instead of lying about progress -- the same rule the
+            top-level `Race` meter follows. Swapped out for the real claims the moment the
+            first one lands. */}
+        {turn.status === "generating" && !turn.claims.length ? (
+          <div className="meter" style={{ marginTop: "0.2rem" }}>
+            <Meter label="prose" value={0} max={1} display="composing…" busy alt />
+          </div>
         ) : null}
 
         {turn.claims.length ? (
@@ -765,13 +810,13 @@ function FollowupItem({
                     <span className="label" style={{ alignSelf: "center", marginRight: "0.2rem" }}>
                       {c.grounded ? "grounded in" : "cites"}
                     </span>
-                    {c.citations.map((cit) => (
+                    {c.citations.map((v) => (
                       <a
                         className="cite"
-                        key={cit.version_id}
-                        href={`#/timeline/${encodeURIComponent(sectionOf(cit.version_id))}/${cit.version_id.split("@")[1] ?? ""}`}
+                        key={v}
+                        href={`#/timeline/${encodeURIComponent(sectionOf(v))}/${v.split("@")[1] ?? ""}`}
                       >
-                        {cit.version_id}
+                        {v}
                       </a>
                     ))}
                   </div>

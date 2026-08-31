@@ -10,11 +10,12 @@ import {
 import {
   ApiError,
   api,
+  askFollowupStream,
   askStream,
+  getExchange,
   type AskParams,
   type AskResponse,
   type ClaimFrame,
-  type ClaimView,
   type ErrorFrame,
   type Evidence,
   type RetrievalFrame,
@@ -44,15 +45,24 @@ export type Phase =
  * One follow-up turn. It reads like a marginal note, so it carries what a note needs: the
  * question, the pinned as-of it was necessarily answered under (never a fresh one), and
  * whichever of the two honest outcomes actually happened.
+ *
+ * `asOf`, `scope` and `evidenceCount` are filled from the stream's `pinned` frame, which
+ * lands before generation starts -- so a turn shows what it is answered from immediately,
+ * the same asymmetry the top-level ask exploits between retrieval and generation, rather
+ * than leaving the reader with nothing until the whole turn resolves.
  */
 export interface FollowupTurn {
   id: string;
   question: string;
-  status: "asking" | "answered" | "insufficient" | "failed" | "widening";
+  status: "asking" | "generating" | "answered" | "insufficient" | "failed" | "widening";
   traceId: string | null;
   asOf: string;
   scope: string;
-  claims: ClaimView[];
+  /** From the `pinned` frame. Null until it lands. */
+  evidenceCount: number | null;
+  /** `ClaimFrame`, not `ClaimView`: the stream carries citations as bare version ids, the
+      same shape the top-level ask's `AskState.claims` already carries. */
+  claims: ClaimFrame[];
   /** Missing references the pinned evidence itself makes. Offered only when insufficient. */
   widen: WidenOffer[];
   /** Chunks fetched by `widen` on this turn, shown here rather than folded into the panel. */
@@ -61,6 +71,8 @@ export interface FollowupTurn {
 }
 
 export interface AskState {
+  /** True when this exchange came back from a link rather than a question just asked. */
+  reopened?: boolean;
   phase: Phase;
   params: AskParams | null;
   retrieval: RetrievalFrame | null;
@@ -108,6 +120,7 @@ interface AskApi {
   run: (params: AskParams) => void;
   cancel: () => void;
   reset: () => void;
+  reopen: (traceId: string) => Promise<void>;
   /** Answer `question` from the exchange's current pinned trace. No-op with nothing pinned. */
   askFollowup: (question: string) => void;
   /** Fetch `chunkId` into the pinned set for the turn identified by `turnId`. */
@@ -239,24 +252,56 @@ export function AskProvider({ children }: { children: ReactNode }) {
       ...s,
       followups: [...s.followups, {
         id, question, status: "asking", traceId: null, asOf: "", scope: "",
-        claims: [], widen: [], widened: [], error: null,
+        evidenceCount: null, claims: [], widen: [], widened: [], error: null,
       }],
     }));
-    api.askFollowup(traceId, question, ac.signal).then(
-      (res) => {
-        if (ac.signal.aborted) return;
-        // Advance the pin only once this turn's own trace exists, so a follow-up asked while
-        // this one is still in flight still answers the evidence *this* turn started from.
-        if (res.trace_id) pinned.current = res.trace_id;
+
+    (async () => {
+      try {
+        for await (const frame of askFollowupStream(traceId, question, ac.signal)) {
+          if (ac.signal.aborted) return;
+          setState((s) => ({
+            ...s,
+            followups: s.followups.map((f) => {
+              if (f.id !== id) return f;
+              switch (frame.type) {
+                case "pinned":
+                  // Landed before generation starts -- a reader sees which date and how
+                  // much evidence this turn is bound to before waiting on the model.
+                  return { ...f, status: "generating", asOf: frame.data.as_of,
+                            scope: frame.data.scope, evidenceCount: frame.data.evidence_count };
+                case "status":
+                  return f;
+                case "claim":
+                  return { ...f, claims: [...f.claims, frame.data] };
+                case "widen":
+                  return { ...f, widen: frame.data };
+                case "done":
+                  // Advance the pin only once this turn's own trace exists, so a follow-up
+                  // asked while this one is still in flight still answers the evidence
+                  // *this* turn started from.
+                  if (frame.data.trace_id) pinned.current = frame.data.trace_id;
+                  return { ...f, status: frame.data.kind, traceId: frame.data.trace_id };
+                case "error":
+                  // Replaces whatever status this turn was in -- claims already delivered
+                  // stay, the same rule the top-level stream follows.
+                  return { ...f, status: "failed", error: frame.data };
+                default:
+                  return f;
+              }
+            }),
+          }));
+        }
+        // A stream that ends without `done` or `error` was truncated.
         setState((s) => ({
           ...s,
-          followups: s.followups.map((f) => (f.id === id
-            ? { ...f, status: res.kind, traceId: res.trace_id, asOf: res.as_of,
-                scope: res.scope, claims: res.claims, widen: res.widen }
-            : f)),
+          followups: s.followups.map((f) =>
+            f.id === id && (f.status === "asking" || f.status === "generating")
+              ? { ...f, status: "failed",
+                  error: { status: 0, detail: "the stream ended without a done frame" } }
+              : f),
         }));
-      },
-      (err) => {
+      } catch (err) {
         if (ac.signal.aborted || (err as Error)?.name === "AbortError") return;
         const e = err instanceof ApiError ? err : new ApiError(0, String(err));
         setState((s) => ({
@@ -266,8 +311,8 @@ export function AskProvider({ children }: { children: ReactNode }) {
                 error: { status: e.status, detail: e.detail, retryAfter: e.retryAfter } }
             : f)),
         }));
-      },
-    );
+      }
+    })();
   }, []);
 
   const widen = useCallback((turnId: string, chunkId: string) => {
@@ -305,9 +350,33 @@ export function AskProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  /**
+   * Restore an exchange from its trace id, so a refresh or a shared link lands on the same
+   * conversation rather than an empty form. The pinned date comes back with it -- an
+   * exchange that reopened at today's date would be a different question wearing the same
+   * link, which is the drift this whole layer exists to prevent.
+   */
+  const reopen = useCallback(async (traceId: string) => {
+    try {
+      const ex = await getExchange(traceId);
+      setState({
+        ...EMPTY,
+        params: { q: ex.question, as_of: ex.as_of },
+        evidence: ex.evidence,
+        done: { trace_id: ex.trace_id, generated: true },
+        reopened: true,
+      });
+      pinned.current = ex.trace_id;
+    } catch {
+      // A dead link is not worth an error state: the form below is usable, and the trace may
+      // simply predate a rebuild that renamed the chunk ids it pins.
+      setState({ ...EMPTY });
+    }
+  }, []);
+
   const value = useMemo<AskApi>(
-    () => ({ state, run, cancel, reset, askFollowup, widen }),
-    [state, run, cancel, reset, askFollowup, widen],
+    () => ({ state, run, cancel, reset, reopen, askFollowup, widen }),
+    [state, run, cancel, reset, reopen, askFollowup, widen],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

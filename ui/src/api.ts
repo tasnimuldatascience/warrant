@@ -10,8 +10,9 @@
  * Two things the endpoints do that a naive client gets wrong:
  *
  *   - the question parameter is `q`, not `question` (guard.question_param);
- *   - `/api/ask/stream` returns 200 and *then* reports refusals as an `error` frame, because
- *     by the time admission control refuses, the status code is already spent.
+ *   - both `/api/ask/stream` and `/api/ask/followup/stream` return 200 and *then* report
+ *     refusals as an `error` frame, because by the time admission control refuses, the
+ *     status code is already spent.
  */
 
 // -- response models -------------------------------------------------------------------
@@ -274,6 +275,34 @@ export type AskEvent =
   | { type: "done"; data: DoneFrame }
   | { type: "error"; data: ErrorFrame };
 
+/**
+ * `/api/ask/followup/stream`'s first frame: which exchange this turn answers from.
+ *
+ * Sent before generation starts, which is the entire reason it exists as its own frame
+ * rather than a field on `done` -- the date and evidence a turn is pinned to are already
+ * decided the instant the parent trace loads, seconds before there is any prose to show.
+ */
+export interface PinnedFrame {
+  parent_trace_id: string;
+  as_of: string;
+  scope: string;
+  evidence_count: number;
+}
+
+export interface FollowupDoneFrame {
+  trace_id: string | null;
+  kind: "answered" | "insufficient";
+  abstained: boolean;
+}
+
+export type FollowupEvent =
+  | { type: "pinned"; data: PinnedFrame }
+  | { type: "status"; data: StatusFrame }
+  | { type: "claim"; data: ClaimFrame }
+  | { type: "widen"; data: WidenOffer[] }
+  | { type: "done"; data: FollowupDoneFrame }
+  | { type: "error"; data: ErrorFrame };
+
 // -- transport -------------------------------------------------------------------------
 
 /**
@@ -417,26 +446,24 @@ export interface AskParams {
   service?: string | null;
 }
 
+/** One SSE frame, decoded but not yet typed to an endpoint's own event union. */
+interface RawFrame {
+  event: string;
+  data: unknown;
+}
+
 /**
- * Consume `/api/ask/stream`, yielding frames in arrival order.
+ * The byte-stream half of consuming an SSE endpoint, shared by `askStream` and
+ * `askFollowupStream` so the framing logic exists exactly once.
  *
  * `fetch` plus a hand-rolled parser rather than `EventSource`, for one reason that matters:
  * EventSource reports every pre-stream failure as an untyped `error` with no status. A 422
  * on a malformed date, a 429 from the limiter with its Retry-After, and a dead server would
  * all arrive here as the same blank event, and the UI would have to guess. It also
- * reconnects on its own, which for a ~7 s generation means silently paying for it twice.
+ * reconnects on its own, which for a several-second generation means silently paying for it
+ * twice.
  */
-export async function* askStream(
-  p: AskParams,
-  signal?: AbortSignal,
-): AsyncGenerator<AskEvent, void, void> {
-  const url = `/api/ask/stream${query({
-    q: p.q,
-    as_of: p.as_of,
-    pay_system: p.pay_system,
-    service: p.service,
-  })}`;
-
+async function* sseFrames(url: string, signal?: AbortSignal): AsyncGenerator<RawFrame, void, void> {
   let res: Response;
   try {
     res = await fetch(url, { signal, headers: { accept: "text/event-stream" } });
@@ -464,11 +491,11 @@ export async function* askStream(
       while ((cut = buffer.indexOf("\n\n")) !== -1) {
         const frame = buffer.slice(0, cut);
         buffer = buffer.slice(cut + 2);
-        const parsed = parseFrame(frame);
+        const parsed = parseRawFrame(frame);
         if (parsed) yield parsed;
       }
     }
-    const tail = parseFrame(buffer);
+    const tail = parseRawFrame(buffer);
     if (tail) yield tail;
   } finally {
     // Cancelling rather than leaving it to GC: an abandoned generation holds the server's
@@ -477,7 +504,7 @@ export async function* askStream(
   }
 }
 
-function parseFrame(raw: string): AskEvent | null {
+function parseRawFrame(raw: string): RawFrame | null {
   let event = "";
   const data: string[] = [];
   for (const line of raw.split("\n")) {
@@ -485,28 +512,106 @@ function parseFrame(raw: string): AskEvent | null {
     else if (line.startsWith("data:")) data.push(line.slice(5).trim());
   }
   if (!event || data.length === 0) return null;
-  let payload: unknown;
   try {
-    payload = JSON.parse(data.join("\n"));
+    return { event, data: JSON.parse(data.join("\n")) };
   } catch {
-    return { type: "error", data: { status: 0, detail: `unparseable ${event} frame` } };
+    return { event: "error", data: { status: 0, detail: `unparseable ${event} frame` } };
   }
-  switch (event) {
-    case "retrieval":
-      return { type: "retrieval", data: payload as RetrievalFrame };
-    case "evidence":
-      return { type: "evidence", data: payload as StreamEvidence[] };
-    case "status":
-      return { type: "status", data: payload as StatusFrame };
-    case "claim":
-      return { type: "claim", data: payload as ClaimFrame };
-    case "done":
-      return { type: "done", data: payload as DoneFrame };
-    case "error":
-      return { type: "error", data: payload as ErrorFrame };
-    default:
+}
+
+/** Consume `/api/ask/stream`, yielding frames in arrival order. */
+export async function* askStream(
+  p: AskParams,
+  signal?: AbortSignal,
+): AsyncGenerator<AskEvent, void, void> {
+  const url = `/api/ask/stream${query({
+    q: p.q,
+    as_of: p.as_of,
+    pay_system: p.pay_system,
+    service: p.service,
+  })}`;
+  for await (const { event, data } of sseFrames(url, signal)) {
+    switch (event) {
+      case "retrieval":
+        yield { type: "retrieval", data: data as RetrievalFrame };
+        break;
+      case "evidence":
+        yield { type: "evidence", data: data as StreamEvidence[] };
+        break;
+      case "status":
+        yield { type: "status", data: data as StatusFrame };
+        break;
+      case "claim":
+        yield { type: "claim", data: data as ClaimFrame };
+        break;
+      case "done":
+        yield { type: "done", data: data as DoneFrame };
+        break;
+      case "error":
+        yield { type: "error", data: data as ErrorFrame };
+        break;
       // An event name this client has never heard of is a server that moved ahead of it.
       // Dropping it silently is right; crashing on it is not.
-      return null;
+    }
   }
+}
+
+/**
+ * Consume `/api/ask/followup/stream`, yielding frames in arrival order.
+ *
+ * `traceId` is the exchange this turn answers from -- the same id `askStream`'s `done` frame
+ * (or `askFollowup`'s response) already handed back. There is no `as_of` or scope parameter
+ * to pass here, on purpose: the endpoint has none either, so there is no channel through
+ * which a follow-up could smuggle in a different date than the one its parent pinned.
+ */
+export async function* askFollowupStream(
+  traceId: string,
+  q: string,
+  signal?: AbortSignal,
+): AsyncGenerator<FollowupEvent, void, void> {
+  const url = `/api/ask/followup/stream${query({ trace_id: traceId, q })}`;
+  for await (const { event, data } of sseFrames(url, signal)) {
+    switch (event) {
+      case "pinned":
+        yield { type: "pinned", data: data as PinnedFrame };
+        break;
+      case "status":
+        yield { type: "status", data: data as StatusFrame };
+        break;
+      case "claim":
+        yield { type: "claim", data: data as ClaimFrame };
+        break;
+      case "widen":
+        yield { type: "widen", data: data as WidenOffer[] };
+        break;
+      case "done":
+        yield { type: "done", data: data as FollowupDoneFrame };
+        break;
+      case "error":
+        yield { type: "error", data: data as ErrorFrame };
+        break;
+    }
+  }
+}
+
+export interface ReopenedExchange {
+  trace_id: string;
+  question: string;
+  as_of: string;
+  scope: string;
+  evidence: StreamEvidence[];
+}
+
+/**
+ * Reopen a recorded exchange by its trace id.
+ *
+ * Deliberately not a re-ask. The server returns the evidence the turn was actually answered
+ * from; re-running retrieval would substitute today's ranking for the one that produced the
+ * answer being reopened, which is the same class of quiet substitution the pinned as-of
+ * exists to prevent.
+ */
+export async function getExchange(traceId: string): Promise<ReopenedExchange> {
+  const res = await fetch(`/api/exchange/${encodeURIComponent(traceId)}`);
+  if (!res.ok) throw new Error(`no such exchange: ${traceId}`);
+  return (await res.json()) as ReopenedExchange;
 }

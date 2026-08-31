@@ -340,6 +340,23 @@ class WidenResponse(BaseModel):
     pinned_count: int
 
 
+class ExchangeResponse(BaseModel):
+    """A recorded exchange, rebuilt from its trace so a conversation can be reopened.
+
+    The durable half of this already existed: an exchange *is* its trace id, traces persist,
+    and `followup.load_exchange` reconstructs the pinned set from one. The client was the only
+    thing throwing the handle away -- a refresh lost the date, the evidence and every turn,
+    while the server could have handed all of it back. Reopening also makes an exchange
+    linkable, which is the same capability wearing a more useful name.
+    """
+
+    trace_id: str
+    question: str
+    as_of: str
+    scope: str
+    evidence: list[Evidence] = Field(default_factory=list)
+
+
 class ReadyResponse(BaseModel):
     """Readiness: this process can actually answer. Deliberately not the same question.
 
@@ -664,10 +681,12 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
     # cannot read, or that a user cannot quote, is a rejection nobody can act on.
     app.add_middleware(guard.RateLimitMiddleware, answer=guards.answer,
                        read=guards.read, enabled=guards.enabled,
-                       # A follow-up costs a generation slot exactly like /api/ask. A widen
-                       # is a single indexed lookup -- no ranking, no model -- so it stays in
-                       # the read bucket by not appearing here.
-                       answer_paths=("/api/ask", "/api/ask/followup"))
+                       # A follow-up costs a generation slot exactly like /api/ask, streamed
+                       # or not -- both reach the same `_generate_answer`. A widen is a single
+                       # indexed lookup -- no ranking, no model -- so it stays in the read
+                       # bucket by not appearing here.
+                       answer_paths=("/api/ask", "/api/ask/followup",
+                                     "/api/ask/followup/stream"))
     app.add_middleware(
         CORSMiddleware, allow_origin_regex=LOCAL_ORIGIN_RE, allow_credentials=False,
         allow_methods=["GET", "OPTIONS"], allow_headers=["*"],
@@ -1159,6 +1178,109 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
             widen=[WidenOffer(**o) for o in followup.widenable(result.dangling)],
         )
 
+    @app.get(
+        "/api/ask/followup/stream", response_class=StreamingResponse,
+        # Same reasoning as `/api/ask/stream`'s `responses=`: SSE has no schema language, so
+        # the event names are the contract, and an undeclared streaming route documents as an
+        # open JSON object that `test_openapi_documents_a_schema_for_every_response` rejects.
+        responses={200: {"description":
+                         "Server-sent events, in order: `pinned` (parent_trace_id, as_of, "
+                         "scope, evidence count -- emitted before generation starts, so a "
+                         "reader sees which date and evidence a turn is bound to before the "
+                         "answer arrives), `status`, zero or more `claim` frames once parsed "
+                         "and validated, `widen` (references the pinned set does not hold, "
+                         "sent only when the generator abstained), then `done` (trace_id, "
+                         "kind, abstained). An `error` frame ends the stream in place of "
+                         "`done` -- by the time this response opens, the status code is "
+                         "already spent, so a refusal has to arrive as an event or the client "
+                         "cannot tell it apart from a dropped connection.",
+                         "content": {"text/event-stream": {}}}})
+    async def ask_followup_stream(request: Request, trace_id: str = Query(max_length=64),
+                                  question: guard.Question = guard.QuestionParam
+                                  ) -> StreamingResponse:
+        """`ask_followup`, delivered in the order its pieces become available.
+
+        A transport change over `ask_followup`, not new logic -- the same
+        `load_exchange` / `excerpts_for_exchange` / `finish_followup` / `widenable` /
+        `trace_context` calls, in the same order, so the two endpoints can never disagree
+        about what a follow-up answered from. What differs is *when* the caller learns it:
+        the non-streaming form makes a reader wait out the full ~6.6 s generation behind a
+        spinner with nothing to show for it, even though which exchange this turn pins to --
+        the date, the scope, how much evidence -- is already decided the instant the trace
+        loads. `pinned` reports that immediately, the same asymmetry `/api/ask/stream`
+        exploits between retrieval and generation.
+
+        No `as_of` and no scope parameter here either, and for the same reason `ask_followup`
+        has none: there is no channel through which a later turn could smuggle in a different
+        date than the one its parent trace pinned.
+        """
+        if not rt.generate:
+            raise HTTPException(503, "generation is off on this server")
+        q = question.text
+
+        def _load():
+            rt.read_only()
+            exchange = followup.load_exchange(rt.traces, trace_id)
+            return exchange, followup.excerpts_for_exchange(rt.store, exchange, q)
+
+        async def events() -> AsyncIterator[str]:
+            try:
+                # `load_exchange` and the excerpt lookup both touch the store, so a bad
+                # trace_id surfaces only once the thread hop returns -- after the 200 is
+                # already committed (`StreamingResponse` sends headers before its body
+                # iterator runs a single step). It has to become an event, not a 404.
+                try:
+                    exchange, excerpts = await anyio.to_thread.run_sync(_load)
+                except followup.NoSuchExchange as exc:
+                    yield _sse("error", {"status": 404, "detail": f"no such exchange: {exc}"})
+                    return
+                if not excerpts:
+                    yield _sse("error", {"status": 409, "detail":
+                                         "the parent turn retrieved no evidence to follow "
+                                         "up from"})
+                    return
+
+                # First and immediate, before the excerpts are even bounded to a token
+                # budget -- the whole point is naming what this turn is pinned to before
+                # the generation it is about to wait on.
+                yield _sse("pinned", {
+                    "parent_trace_id": exchange.trace_id, "as_of": exchange.as_of,
+                    "scope": exchange.scope, "evidence_count": len(exchange.evidence),
+                })
+
+                prompt = guard.bound_excerpts(excerpts)
+                prompt.cost().check(GENERATE_DEADLINE_S)
+
+                yield _sse("status", {"stage": "generating",
+                                      "note": "one at a time; measured 29.2 tok/s"})
+                answer = await _generate_answer(rt, q, prompt.excerpts, as_of=exchange.as_of,
+                                                scope=exchange.scope,
+                                                deadline=request.state.deadline)
+                result = followup.finish_followup(exchange, q, answer, store=rt.store)
+                guard.check_answer_against(rt.store, answer, as_of=exchange.as_of,
+                                           retrieved=[v for v, _, _ in prompt.excerpts])
+                tid = _record(rt, result.trace, answer=answer,
+                              context=followup.trace_context(exchange, result.kind))
+                for claim in answer.claims:
+                    yield _sse("claim", {
+                        "text": claim.text, "grounded": claim.grounded,
+                        "citations": sorted(claim.spans),
+                    })
+                if answer.abstained:
+                    yield _sse("widen", followup.widenable(result.dangling))
+                yield _sse("done", {"trace_id": tid, "kind": result.kind,
+                                    "abstained": answer.abstained})
+            except HTTPException as exc:
+                yield _sse("error", {"status": exc.status_code, "detail": exc.detail})
+            except Exception as exc:  # noqa: BLE001 - the stream must end on purpose
+                log.exception("ask followup stream failed")
+                yield _sse("error", {"status": 500, "detail": str(exc)})
+
+        return StreamingResponse(events(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        })
+
     @app.get("/api/ask/widen", response_model=WidenResponse)
     def ask_widen(trace_id: str = Query(max_length=64),
                   chunk_id: str = Query(max_length=64)) -> WidenResponse:
@@ -1186,6 +1308,24 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
                              added=_evidence(row), pinned_count=len(widened))
 
     # -- version history --------------------------------------------------------
+
+    @app.get("/api/exchange/{trace_id}", response_model=ExchangeResponse)
+    def exchange(trace_id: str) -> ExchangeResponse:
+        """Reopen a recorded exchange: its question, its pinned date, and its evidence.
+
+        Read-only and cheap -- one trace row and one lookup of the version ids it pinned. It
+        deliberately does not re-run retrieval: reopening must return the evidence the turn
+        was *actually* answered from, and re-retrieving would quietly substitute today's
+        ranking for the one that produced the answer being reopened.
+        """
+        rt.read_only()
+        try:
+            ex = followup.load_exchange(rt.traces, trace_id)
+        except followup.NoSuchExchange as exc:
+            raise HTTPException(404, f"no such exchange: {exc}") from exc
+        rows = _rows(rt.store, list(ex.evidence))
+        return ExchangeResponse(trace_id=ex.trace_id, question=ex.question, as_of=ex.as_of,
+                                scope=ex.scope, evidence=[_evidence(r) for r in rows])
 
     @app.get("/api/section/{section_id}", response_model=SectionResponse)
     def section(section_id: str) -> SectionResponse:

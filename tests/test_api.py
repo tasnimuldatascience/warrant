@@ -27,6 +27,8 @@ from fastapi.testclient import TestClient
 from warrant.config import Config
 from warrant.generate.answer import Answer, Claim
 from warrant.index.store import Chunk, Store
+from warrant.observe.trace_store import TraceStore
+from warrant.retrieve.hybrid import Trace
 from warrant.serve import api, guard
 from warrant.serve.api import create_app
 from warrant.verify.align import Span
@@ -822,3 +824,197 @@ def test_an_omitted_as_of_resolves_to_the_corpus_latest_snapshot(client: TestCli
     r = client.get("/api/ask", params={"q": "restored annual leave"})
     assert r.status_code == 200
     assert r.json()["as_of"] == meta["latest"]
+
+
+# -- follow-up, streamed ------------------------------------------------------------------
+
+
+class _AbstainingGenerator:
+    """Abstains, echoing every offered excerpt back as `cited` so `dangling_references` has
+    real text to scan -- the same shape `finish_followup` builds its `widen` offers from."""
+
+    def answer(self, question, excerpts, *, as_of, scope):
+        cited = {vid: text for vid, _heading, text in excerpts}
+        return Answer(question, as_of, scope, [], False, cited)
+
+
+def _followup_stream_app(cfg: Config, store: Store, tmp_path, *, guards=None) -> TestClient:
+    c = cfg.model_copy(deep=True)
+    # A private cache file, same reason every other generate=True test in this module takes
+    # one: `cfg` is shared, and an identical question served from another test's cache would
+    # never reach the generator this test is asserting about.
+    c.store.path = str(tmp_path / "warrant.sqlite3")
+    app = create_app(c, generate=True, store=store, warm=False, thread_limit=2,
+                     guards=guards or guard.Guards(enabled=False))
+    return TestClient(app)
+
+
+def test_followup_stream_pins_before_any_claim_and_the_plain_endpoint_still_works(
+        cfg: Config, store: Store, monkeypatch, tmp_path):
+    """The whole point of `pinned`: which exchange a turn answers from -- date, scope, how
+    much evidence -- is known the instant the parent trace loads, seconds before generation
+    finishes. It has to precede every `claim` frame, not merely accompany the `done` one."""
+    monkeypatch.setattr("warrant.generate.model.Generator", _AnsweringGenerator)
+    with _followup_stream_app(cfg, store, tmp_path) as client:
+        parent = client.get("/api/ask", params={"q": "restored annual leave",
+                                                 "as_of": "2018-06-01"})
+        trace_id = parent.json()["trace_id"]
+        assert trace_id
+
+        with client.stream("GET", "/api/ask/followup/stream",
+                           params={"trace_id": trace_id, "q": "how long exactly?"}) as response:
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/event-stream")
+            events = _sse_events("".join(response.iter_text()))
+
+        names = [name for name, _ in events]
+        assert names[0] == "pinned"
+        if "claim" in names:
+            assert names.index("pinned") < names.index("claim")
+        by_name = dict(events)
+        pinned = by_name["pinned"]
+        assert pinned["parent_trace_id"] == trace_id
+        assert pinned["as_of"] == "2018-06-01"
+        assert pinned["scope"] == "government-wide"
+        assert pinned["evidence_count"] > 0
+        done = by_name["done"]
+        assert done["kind"] == "answered"
+        assert done["abstained"] is False
+        assert done["trace_id"]
+
+        # The non-streaming form is kept, unchanged, for the tests and scripts that already
+        # depend on it -- this is a transport addition, not a replacement.
+        plain = client.get("/api/ask/followup", params={"trace_id": trace_id,
+                                                         "q": "how long exactly?"})
+        assert plain.status_code == 200
+        assert plain.json()["kind"] == "answered"
+
+
+def test_followup_stream_offers_widen_only_on_abstention(cfg: Config, monkeypatch, tmp_path):
+    """`widen` is sent when the generator abstains, naming what the pinned text refers to
+    that the pinned set itself does not hold -- the case a follow-up exists to close.
+
+    The parent exchange is pinned directly, the same way `tests/test_followup.py` builds one,
+    rather than through a live `/api/ask` retrieval: with only two chunks in the corpus,
+    retrieval admits both regardless of relevance, and the widened-away chunk would then
+    already be in the pinned set -- which is precisely the case this test needs to rule out,
+    not accidentally reintroduce."""
+    monkeypatch.setattr("warrant.generate.model.Generator", _AbstainingGenerator)
+    c = cfg.model_copy(deep=True)
+    c.store.path = str(tmp_path / "warrant.sqlite3")
+    traces_path = tmp_path / "traces.sqlite3"
+    c.store.traces = str(traces_path)
+    with Store(tmp_path / "corpus.sqlite3") as corpus, TraceStore(traces_path) as traces:
+        corpus.add([
+            Chunk(chunk_id="630.306#a", section_id="630.306", title=5, part="630", anchor="a",
+                  heading="Restored annual leave",
+                  text="annual leave restored must be scheduled within two years, except "
+                       "as provided in paragraph (c) of this section",
+                  valid_from="2017-01-01"),
+            Chunk(chunk_id="630.306#c", section_id="630.306", title=5, part="630", anchor="c",
+                  heading="Restored annual leave",
+                  text="the head of the agency may extend the deadline in an emergency",
+                  valid_from="2017-01-01"),
+        ], system_from=T0)
+        trace = Trace(query="how long do I have?", as_of="2018-06-01", scope="government-wide",
+                      final=("630.306#a@2017-01-01",), admitted=1, config_hash=c.hash)
+        trace_id = traces.record(trace)
+
+        app = create_app(c, generate=True, store=corpus, warm=False, thread_limit=2,
+                         guards=guard.Guards(enabled=False))
+        with TestClient(app) as client, client.stream(
+                "GET", "/api/ask/followup/stream",
+                params={"trace_id": trace_id, "q": "what's the exception?"}) as response:
+            events = _sse_events("".join(response.iter_text()))
+
+    by_name = dict(events)
+    assert by_name["pinned"]["evidence_count"] == 1
+    assert by_name["done"]["kind"] == "insufficient"
+    assert by_name["done"]["abstained"] is True
+    assert any(o["chunk_id"] == "630.306#c" for o in by_name["widen"])
+
+
+def test_a_followup_stream_refusal_arrives_as_an_event_after_pinned(
+        cfg: Config, store: Store, monkeypatch, tmp_path):
+    """Same reasoning as `/api/ask/stream`: by the time admission control can refuse, this
+    response has already been a 200 with an open body for one `pinned` frame's worth of time,
+    so the refusal has nowhere to go but an event."""
+    monkeypatch.setattr("warrant.generate.model.Generator", _AnsweringGenerator)
+    with _followup_stream_app(cfg, store, tmp_path) as client:
+        parent = client.get("/api/ask", params={"q": "restored annual leave",
+                                                 "as_of": "2018-06-01"})
+        trace_id = parent.json()["trace_id"]
+        assert trace_id
+
+        from warrant.serve import api as api_module
+
+        def refuse(*a, **k):
+            raise api_module.HTTPException(503, "generator at capacity")
+
+        monkeypatch.setattr(api_module, "_generate_answer", refuse)
+
+        with client.stream(
+                "GET", "/api/ask/followup/stream",
+                params={"trace_id": trace_id, "q": "how long exactly?"}) as response:
+            assert response.status_code == 200
+            events = _sse_events("".join(response.iter_text()))
+
+    names = [name for name, _ in events]
+    assert names[0] == "pinned"
+    assert dict(events)["error"]["status"] == 503
+
+
+def test_followup_stream_on_an_unknown_trace_id_is_an_error_event_not_a_404(
+        cfg: Config, store: Store, tmp_path):
+    """`ask_followup` (non-streaming) 404s on a bad trace_id before anything opens. Streamed,
+    the 200 is already committed by the time the trace lookup runs, so the same fact has to
+    travel as an `error` frame instead."""
+    with _followup_stream_app(cfg, store, tmp_path) as client, client.stream(
+            "GET", "/api/ask/followup/stream",
+            params={"trace_id": "never-recorded", "q": "anything at all"}) as response:
+        assert response.status_code == 200
+        events = _sse_events("".join(response.iter_text()))
+    by_name = dict(events)
+    assert "pinned" not in by_name, "nothing to pin to -- the exchange does not exist"
+    assert by_name["error"]["status"] == 404
+
+
+def test_followup_stream_is_metered_as_a_generation_route(cfg: Config, store: Store, tmp_path):
+    """`/api/ask/followup/stream` costs a generation slot exactly like `/api/ask` and
+    `/api/ask/followup` -- it must sit in the rate limiter's `answer_paths`, not the cheaper
+    read bucket a widen or a section lookup uses."""
+    c = cfg.model_copy(deep=True)
+    c.store.path = str(tmp_path / "warrant.sqlite3")
+    app = create_app(c, generate=True, store=store, warm=False, thread_limit=2,
+                     guards=guard.Guards(answer=guard.RateLimiter(1e-6, burst=1),
+                                         read=guard.RateLimiter(1e-6, burst=1)))
+    with TestClient(app) as client:
+        origin = {"Origin": "http://localhost:5173"}
+        first = client.get("/api/ask", params={"q": "restored annual leave",
+                                               "as_of": "2018-06-01"}, headers=origin)
+        assert first.status_code == 200
+        with client.stream("GET", "/api/ask/followup/stream",
+                           params={"trace_id": "does-not-matter", "q": "anything at all"},
+                           headers=origin) as response:
+            assert response.status_code == 429
+
+
+def test_an_exchange_can_be_reopened_from_its_trace(client: TestClient):
+    """The durable half already existed -- an exchange is its trace id, and traces persist.
+    The client was the only thing throwing the handle away, so a refresh lost the date, the
+    evidence and every turn while the server could have handed all of it back."""
+    body = client.get("/api/ask", params={"q": "restored annual leave",
+                                          "as_of": "2024-01-01"}).json()
+    tid = body["trace_id"]
+    assert tid, "an ask must leave a trace to reopen"
+
+    again = client.get(f"/api/exchange/{tid}").json()
+    assert again["trace_id"] == tid
+    assert again["as_of"] == body["as_of"]
+    assert [e["version_id"] for e in again["evidence"]] == \
+           [e["version_id"] for e in body["evidence"]], (
+        "reopening must return the evidence the turn was answered from, not today's ranking")
+
+
+def test_reopening_an_unknown_exchange_is_a_404(client: TestClient):
+    assert client.get("/api/exchange/nosuchtrace").status_code == 404
