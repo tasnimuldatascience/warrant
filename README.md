@@ -382,10 +382,11 @@ Not legal advice. Not a general web-scale RAG. Every architecture section is mar
 
 ## See it
 
-![warrant](media/warrant-demo.gif)
+![the request path](media/warrant-architecture.gif)
 
-*The same question at two dates; evidence cited before the prose arrives; a follow-up pinned
-to the first turn's date. Recorded against the running system — nothing staged.*
+*Every stage, what survived it, and what it cost. The full interface walkthrough is
+[`media/warrant-demo.mp4`](media/warrant-demo.mp4) — recorded against the running system,
+nothing staged.*
 
 
 

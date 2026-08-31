@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>warrant — the request path</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,200;6..72,300;6..72,400;6..72,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --paper:#eceeef; --leaf:#f9fafa; --ink:#12161a; --muted:#5a656d;
+    --rule:#cfd5d8; --firm:#a7b1b7; --accent:#1a4f7a; --wash:#dbe6ef;
+    --stamp:#9b2c22; --ok:#23684a;
+    --serif:"Newsreader",Georgia,serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--serif)}
+  body{width:1200px;height:900px;overflow:hidden;position:relative}
+
+  .head{padding:34px 52px 16px;border-bottom:2px solid var(--ink);
+        display:flex;align-items:baseline;justify-content:space-between}
+  .mark{font-size:27px;font-weight:600;letter-spacing:.06em}
+  .sub{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;
+       text-transform:uppercase;color:var(--muted)}
+  .hair{margin:0 52px;border-bottom:1px solid var(--ink);height:4px}
+
+  .stage{padding:0 52px;margin-top:22px}
+  .lede{font-family:var(--mono);font-size:11px;letter-spacing:.18em;
+        text-transform:uppercase;color:var(--stamp);margin-bottom:10px}
+  h1{font-size:41px;line-height:1.06;font-weight:300;margin:0 0 4px;letter-spacing:-.02em}
+
+  .flow{margin:22px 52px 0;display:flex;flex-direction:column;gap:0}
+  .row{display:grid;grid-template-columns:186px 1fr 128px;gap:24px;align-items:center;
+       padding:11px 0;border-top:1px solid var(--rule);opacity:0;transform:translateY(9px);
+       transition:opacity .5s ease,transform .5s ease}
+  .row.on{opacity:1;transform:none}
+  .row.key{border-top:2px solid var(--ink)}
+  .name{font-family:var(--mono);font-size:13.5px;letter-spacing:.02em}
+  .note{font-size:13px;color:var(--muted);font-family:var(--serif);margin-top:3px}
+  .bar{height:19px;background:var(--accent);width:0;transition:width .85s cubic-bezier(.22,.7,.25,1)}
+  .bar.dim{background:transparent;border:1px dashed var(--firm);
+           background-image:repeating-linear-gradient(115deg,#c3cbd0 0 5px,transparent 5px 10px)}
+  .bar.ink{background:var(--ink)}
+  .n{font-family:var(--mono);font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+  .t{font-family:var(--mono);font-size:11px;color:var(--muted);text-align:right;
+     font-variant-numeric:tabular-nums;margin-top:2px}
+  .off{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+       color:var(--firm);text-align:right}
+
+  .split{position:absolute;left:238px;right:180px;height:2px;background:var(--firm);opacity:0;
+         transition:opacity .4s}
+  /* In flow, not positioned over the rows. Absolute placement put this straight through the
+     generation row's own figures -- the numbers it exists to explain. */
+  .pin{margin:22px 52px 0;border-left:2px solid var(--stamp);padding:2px 0 2px 20px;
+       max-width:830px;opacity:0;transform:translateY(8px);
+       transition:opacity .6s ease,transform .6s ease}
+  .pin.on{opacity:1;transform:none}
+  .pin b{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+         color:var(--stamp);display:block;margin-bottom:6px;font-weight:600}
+  .pin p{margin:0;font-size:16px;line-height:1.45;font-weight:300}
+
+  .foot{position:absolute;left:52px;right:52px;bottom:44px;padding-top:16px;
+        border-top:2px solid var(--ink);display:flex;justify-content:space-between;
+        align-items:baseline;opacity:0;transition:opacity .6s}
+  .foot.on{opacity:1}
+  .foot .big{font-size:23px;font-weight:300}
+  .foot .src{font-family:var(--mono);font-size:11.5px;color:var(--muted);letter-spacing:.04em}
+</style>
+</head>
+<body>
+  <div class="head">
+    <div style="display:flex;align-items:baseline;gap:18px">
+      <span class="mark">WARRANT</span>
+      <span class="sub">the request path</span>
+    </div>
+    <span class="sub">5 CFR &middot; 13,212 chunk versions</span>
+  </div>
+  <div class="hair"></div>
+
+  <div class="stage">
+    <div class="lede">A question &middot; a date &middot; a scope</div>
+    <h1>Every stage records what it saw,<br>and what it cost.</h1>
+  </div>
+
+  <div class="flow" id="flow">
+    <div class="row key" data-w="100" data-n="9,627" data-t="0.02 ms">
+      <div>
+        <div class="name">predicates</div>
+        <div class="note">as-of and applicability, pushed <em>into</em> the query</div>
+      </div>
+      <div><div class="bar ink"></div></div>
+      <div><div class="n"></div><div class="t"></div></div>
+    </div>
+
+    <div class="row" data-w="22" data-n="100" data-t="14.1 ms">
+      <div><div class="name">lexical &middot; BM25</div><div class="note">FTS5 over the admitted set</div></div>
+      <div><div class="bar"></div></div>
+      <div><div class="n"></div><div class="t"></div></div>
+    </div>
+
+    <div class="row" data-w="22" data-n="100" data-t="15.1 ms">
+      <div><div class="name">dense &middot; cosine</div><div class="note">concurrent, not sequential</div></div>
+      <div><div class="bar"></div></div>
+      <div><div class="n"></div><div class="t"></div></div>
+    </div>
+
+    <div class="row" data-w="14" data-n="62" data-t="0.27 ms">
+      <div><div class="name">fusion &middot; RRF</div><div class="note">two rank lists, never two scores</div></div>
+      <div><div class="bar"></div></div>
+      <div><div class="n"></div><div class="t"></div></div>
+    </div>
+
+    <div class="row" data-w="14" data-n="&mdash;" data-t="off" data-dim="1">
+      <div><div class="name">rerank</div><div class="note">+0.5 points at p = 0.79 &mdash; not measurable</div></div>
+      <div><div class="bar dim"></div></div>
+      <div><div class="off">off</div></div>
+    </div>
+
+    <div class="row key" data-w="4" data-n="16" data-t="18.4 ms">
+      <div><div class="name">evidence</div><div class="note">cited by id, in force on the asked date</div></div>
+      <div><div class="bar ink"></div></div>
+      <div><div class="n"></div><div class="t"></div></div>
+    </div>
+
+    <div class="row" data-w="4" data-n="2" data-t="6.6 s">
+      <div><div class="name">generation</div><div class="note">claims, each carrying evidence ids</div></div>
+      <div><div class="bar"></div></div>
+      <div><div class="n"></div><div class="t"></div></div>
+    </div>
+  </div>
+
+  <div class="pin" id="pin">
+    <b>why it streams</b>
+    <p>The citations are ready in <strong>18 ms</strong>. The prose takes <strong>6.6 s</strong>.
+       So the evidence goes out first &mdash; a spinner over both would hide a result that was
+       already there.</p>
+  </div>
+
+  <div class="foot" id="foot">
+    <span class="big">A wrong answer has an address, not an excuse.</span>
+    <span class="src">github.com/tasnimuldatascience/warrant</span>
+  </div>
+
+<script>
+  const rows = [...document.querySelectorAll('.row')];
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+
+  async function play() {
+    for (const el of rows) {
+      el.classList.add('on');
+      await wait(70);
+      el.querySelector('.bar').style.width = el.dataset.w + '%';
+      const n = el.querySelector('.n'), t = el.querySelector('.t');
+      if (n) n.innerHTML = el.dataset.n;
+      if (t) t.innerHTML = el.dataset.t;
+      await wait(760);
+    }
+    await wait(400);
+    document.getElementById('pin').classList.add('on');
+    await wait(1500);
+    document.getElementById('foot').classList.add('on');
+  }
+  // A beat before anything moves, so a recording does not start mid-gesture.
+  setTimeout(play, 700);
+</script>
+</body>
+</html>

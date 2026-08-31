@@ -209,6 +209,9 @@ The five-switched-off slide is the one that gets a reply from an engineer. Give 
 | `warrant-demo.mp4` | 1080p, 74s, captions burned in |
 | `warrant-demo.gif` | 14s, full frame — general purpose |
 | `warrant-linkedin.gif` | 14s, 1000×730, 2.9 MB — cropped to the content column |
+| `warrant-architecture.gif` | 13s, 1000×750, **1.4 MB** — the request path, animated |
+| `warrant-architecture.mp4` | the same, 1080p, 1.0 MB |
+| `architecture.html` | its source; re-record by pointing Playwright at it |
 | `warrant-demo.srt` | the same captions, as a sidecar for YouTube |
 | `thumbnail.png` | 1280×720, drawn by `scripts/thumbnail.py` |
 
@@ -248,3 +251,16 @@ pixels.
 
 An mp4 will always look better than a GIF in that feed, and LinkedIn autoplays video natively.
 The GIF exists for the places that will not take one.
+
+### Which one to post
+
+**`warrant-architecture.gif` is the one for a feed.** A screen recording asks a stranger to
+read someone else's UI at 500px wide; the architecture animation states the whole system in
+one loop — 9,627 paragraphs admitted, 100 through each retriever, 62 fused, 16 cited, two
+claims — with the cost beside every stage and the reranker visibly switched off at p = 0.79.
+
+It is also the only asset that shows the thing worth arguing about: **a component that is
+built, measured, and disabled.** Nobody scrolls past that.
+
+Keep `warrant-demo.mp4` for the YouTube upload and for anyone who asks to see it working. The
+architecture loop earns the click; the walkthrough rewards it.
