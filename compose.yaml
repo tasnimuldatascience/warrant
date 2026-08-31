@@ -1,0 +1,41 @@
+# Brings up the API (with the UI it serves) against a named volume for the corpus.
+#
+# Defaults to the `lexical` build target: no torch, no GPU, works on any machine that has
+# Docker. Switch to the full pipeline with:
+#
+#   WARRANT_TARGET=neural docker compose up --build
+#
+# See docs/DEPLOY.md for how to get a corpus into the `warrant-data` volume -- a fresh
+# container has none, and `/ready` correctly reports 503 until one exists.
+
+services:
+  api:
+    build:
+      context: .
+      target: ${WARRANT_TARGET:-lexical}
+    image: warrant:${WARRANT_TARGET:-lexical}
+    ports:
+      - "8000:8000"
+    volumes:
+      - warrant-data:/app/data
+      # The built UI, read-only. It ships inside the image too (ui/dist is committed, not
+      # gitignored), so this mount is for iterating on the UI without rebuilding the image --
+      # `npm run build` on the host is picked up on the next request, not the next `up`.
+      - ./ui/dist:/app/ui/dist:ro
+    healthcheck:
+      # /health is deliberately shallow -- async, touches nothing, true liveness -- so this
+      # checks the process is alive, not that it can answer. A container can be "healthy"
+      # here and still be serving 503 from every read: check GET /ready for that, which
+      # reports `uncovered_chunks` (null = lexical-only deployment, not zero missing vectors)
+      # alongside corpus/model readiness. Compose has no native readiness probe distinct from
+      # this healthcheck; hit /ready by hand or from whatever orchestrates this in production.
+      test: ["CMD", "python", "-c",
+             "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  warrant-data:

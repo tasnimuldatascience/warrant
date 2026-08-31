@@ -1,0 +1,48 @@
+# Mirrors .gitignore's reasoning for data/ (hundreds of MB of eCFR XML, sqlite stores, dense
+# vectors -- entirely reproducible from `warrant corpus fetch/build` and `index build`, never
+# baked into an image) and adds what's specific to a build context rather than a git tree:
+# a 70 MB local node_modules, .git history, and every cache/artifact a dev shell accumulates
+# that a container has no business shipping.
+
+data/
+runs/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.parquet
+*.npy
+*.pkl
+*.gguf
+
+.git/
+.github/
+
+ui/node_modules/
+**/node_modules/
+
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+.venv/
+venv/
+.env
+
+# Test suite: not needed to serve the API, and dev is not an extra the image installs.
+tests/
+
+# Build tooling, not build output. ui/dist is the shipped artefact and IS sent to the daemon.
+Dockerfile
+.dockerignore
+compose.yaml
+.git
+
+.DS_Store
+Thumbs.db
+*.log

@@ -89,3 +89,51 @@ jobs:
         # cheaper, worse system green.
         run: |
           python -m warrant.cli eval gate -c configs/default.yaml --split test             --lexical --floor results/eval-floor-lexical.json
+
+  image:
+    # Builds the container, because the author's machine has no Docker and an unverified
+    # Dockerfile is worse than none: a reviewer runs `docker build`, it fails, and every
+    # other claim in the repository is suddenly worth less. This job is the verification.
+    #
+    # Lexical only. The neural image pulls ~2 GB of torch, which is minutes of runner time
+    # on every push to prove a pip install line the `test` job already proves. DEPLOY.md
+    # says the neural size is an estimate, and it stays one until someone needs it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: lexical
+          load: true
+          tags: warrant:lexical
+      - name: Report the image size
+        run: docker image ls warrant:lexical
+      - name: FTS5 and the vocabulary view must exist in this base image
+        # The store declares chunk_fts USING fts5 and chunk_vocab USING fts5vocab. Debian
+        # almost certainly ships FTS5 enabled, but "almost certainly" is how a container
+        # reaches a reviewer and dies on its first query. Asserted, not assumed.
+        run: >
+          docker run --rm --entrypoint python warrant:lexical
+          -c "import sqlite3;
+          d = sqlite3.connect(':memory:');
+          d.execute('CREATE VIRTUAL TABLE t USING fts5(x)');
+          d.execute(chr(34)+'CREATE VIRTUAL TABLE v USING fts5vocab(t, '+chr(39)+'row'+chr(39)+')'+chr(34));
+          print('fts5 and fts5vocab available')"
+      - name: The container serves, and is honest about having no corpus
+        # No corpus ships in the image, so /ready must say 503 while /health must not. That
+        # asymmetry is the entire reason there are two probes, and it is worth asserting.
+        run: |
+          docker run -d --name w -p 8000:8000 warrant:lexical
+          for i in $(seq 1 30); do
+            curl -sf localhost:8000/health > /dev/null && break
+            sleep 2
+          done
+          curl -sf localhost:8000/health
+          code=$(curl -s -o /dev/null -w '%{http_code}' localhost:8000/ready)
+          echo "ready returned $code"
+          test "$code" = "503"
+          docker logs w | tail -20
+          docker rm -f w
