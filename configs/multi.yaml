@@ -1,0 +1,150 @@
+# The five-tier corpus: eCFR plus statute, notices, guidance and the printed record.
+#
+# `configs/default.yaml` ships every non-eCFR source off, because a clone must build the P0
+# corpus without reaching a network it never asked for. This config is the opposite end: it
+# turns all four on, scoped to one subject so that the hierarchy actually overlaps.
+#
+# The scoping is the point. 5 CFR part 630 (absence and leave) is where the temporal
+# benchmark lives, so every source below is narrowed to leave: 5 U.S.C. chapter 63 is the
+# statute behind part 630, the Federal Register filter is part 630, the OPM pages are the
+# leave fact sheets, and the govinfo granules are printed 630 sections plus the FMLA as
+# enacted. A hierarchy whose tiers never speak to the same question demonstrates nothing --
+# authority only means something where two tiers answer one query and one of them has to win.
+#
+# Measured with this file: results/eval-017-multi-source.md.
+
+corpus:
+  title: 5
+  parts: ["300", "315", "316", "317", "330", "335", "337", "351", "353", "410",
+          "430", "432", "451", "511", "530", "531", "532", "534", "536", "550",
+          "551", "575", "591", "610", "630", "890"]
+  history_floor: "2017-01-01"
+  request_delay_s: 1.0
+  cache_dir: "data/ecfr"
+  index_ttl_hours: 24.0
+  negative_cache_ttl_days: 30.0
+  issue_date_lag_days: 30
+
+# A store of its own, and a dense index and trace database of their own. Ingesting four
+# sources into the shipped store would make every published number in results/ irreproducible
+# without saying so, and `warrant corpus ingest` is incremental -- there is no --rebuild to
+# undo it with. Both paths are gitignored.
+store:
+  path: "data/warrant-multi.sqlite3"
+  dense_path: "data/dense-multi"
+  human_benchmark: "benchmarks/human.yaml"
+  budget: "results/failure-budget.json"
+  traces: "data/traces-multi.sqlite3"
+
+diff:
+  wholesale_threshold: 0.50
+  min_changed_tokens: 3
+
+index:
+  dense:
+    enabled: true
+    model: "BAAI/bge-small-en-v1.5"
+    revision: null
+    batch_size: 64
+  rerank:
+    enabled: true
+    model: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    revision: null
+  fusion:
+    method: "rrf"
+    k: 60
+
+generate:
+  model: null
+  revision: null
+
+retrieve:
+  candidates_lexical: 100
+  candidates_dense: 100
+  rerank_top_k: 50
+  final_k: 16
+  context_chunks: null
+  # Left open on purpose. `max_authority: 2` is the setting the default config points at,
+  # and it is a *measurement* here rather than a default: eval-017 reports what filtering to
+  # statute-and-regulation does to sufficiency and to what a leave question returns. Shipping
+  # the filter on would assert a benefit before it was measured.
+  sources: []
+  max_authority: null
+  max_document_frequency: null
+  hop_budget: 0
+  hop_depth: 2
+
+eval:
+  buckets: ["temporal", "generated", "human"]
+  bootstrap_samples: 1000
+
+sources:
+  federal_register:            # authority 3 -- why an amendment happened
+    enabled: true
+    cache_dir: "data/federal_register"
+    parts: ["630"]
+    # 1994 rather than the 2000 default. The Federal Register API's own coverage begins in
+    # 1994, and the notices that explain the restored-leave and sick-leave rules the corpus
+    # still carries were published in the 1990s -- a 2000 floor drops 27 of the 68 notices
+    # that touch part 630 and takes the whole pre-2000 reasoning with them.
+    published_since: "1994-01-01"
+    term: ""
+    max_documents: 100
+  usc:                         # authority 1 -- binds hardest
+    enabled: true
+    cache_dir: "data/usc"
+    title: "5"
+    chapters: ["63"]           # leave: 5 U.S.C. 6301-6391, the grant behind 5 CFR 630
+    sections: []
+    # Pinned, not discovered. An unpinned release point makes the ingest depend on what OLRC
+    # published this morning, so a rerun a month from now silently ingests different statute
+    # text under the same config hash. 119-102 is the release point eval-017 was measured on.
+    release_point: "119-102"
+  opm:                         # authority 4 -- explains, does not bind
+    enabled: true
+    cache_dir: "data/opm"
+    # The leave fact sheets, not the whole site. Each names the sections it interprets, so
+    # `references` joins guidance to the regulation and the two can be seen to disagree.
+    # Three more (military leave, weather and safety leave, use-or-lose exceptions) 404 under
+    # this path today and are left out rather than carried as dead URLs.
+    urls:
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/annual-leave/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/restoration-of-annual-leave/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/leave-year-beginning-and-ending-dates/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/sick-leave-general-information/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/sick-leave-for-family-care-or-bereavement-purposes/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/sick-leave-to-care-for-a-family-member-with-a-serious-health-condition/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/family-and-medical-leave/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/paid-parental-leave/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/court-leave/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/administrative-leave/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/voluntary-leave-transfer-program/"
+      - "https://www.opm.gov/policy-data-oversight/pay-leave/leave-administration/fact-sheets/emergency-leave-transfer-program/"
+    ttl_hours: 24.0
+  govinfo:                     # authority 5 -- the printed record
+    enabled: true
+    cache_dir: "data/govinfo"
+    ocr: true
+    # Section granules rather than volumes: CFR-2023-title5-vol1.pdf is the whole volume and
+    # the archival tier corroborates a citation rather than supplying one. The same section
+    # is taken from four editions so the printed record spans the corpus window, and
+    # STATUTE-107-Pg6 is the Family and Medical Leave Act of 1993 as Congress enrolled it --
+    # the paper behind 5 CFR 630 subpart L.
+    granules:
+      - "CFR-2023-title5-vol1/CFR-2023-title5-vol1-sec630-306"
+      - "CFR-2019-title5-vol1/CFR-2019-title5-vol1-sec630-306"
+      - "CFR-2010-title5-vol1/CFR-2010-title5-vol1-sec630-306"
+      - "CFR-1997-title5-vol1/CFR-1997-title5-vol1-sec630-306"
+      - "CFR-2023-title5-vol1/CFR-2023-title5-vol1-sec630-301"
+      - "CFR-2023-title5-vol1/CFR-2023-title5-vol1-sec630-302"
+      - "CFR-2023-title5-vol1/CFR-2023-title5-vol1-sec630-305"
+      - "CFR-2023-title5-vol1/CFR-2023-title5-vol1-sec630-308"
+      - "CFR-2023-title5-vol1/CFR-2023-title5-vol1-sec630-1203"
+      - "STATUTE-107/STATUTE-107-Pg6"
+
+entail:
+  enabled: false
+  model: "cross-encoder/nli-deberta-v3-base"
+  revision: null
+  batch_size: 16
+  temperature: 1.72

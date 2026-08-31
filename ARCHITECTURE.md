@@ -497,7 +497,7 @@ Each ships something demonstrable on its own.
 |---|---|---|
 | **P0** ✅ | eCFR point-in-time ingest, apparatus stripping, structural diff, bitemporal store, lexical + dense + RRF + cross-encoder, applicability and as-of predicates, four benchmark buckets with a section-level dev/test split, observational and interventional failure localization, seven CI invariants | The headline artifact needs no LLM |
 | **P1** ✅ | Generation, evidence ids, deterministic span alignment, and the measurement of all three — hallucination rate, citation precision, abstention quality | A generator nothing scores is a generator nobody can trust |
-| **P2** | UI: time slider, scope selector, citation highlighting, trace viewer | Designed; the API it runs on is built, and `/api/ask/stream` sends the evidence at 18 ms rather than making the UI wait 19 s for the prose |
+| **P2** ✅ | UI: Ask, Timeline, Diff, Trace — four screens over the existing API | Ask consumes `/api/ask/stream`, so the evidence is on screen at ~18 ms and the prose follows at ~6.6 s. One spinner over both would hide a result that was ready in a fiftieth of a second |
 | **P3** ✅ | Calibrated verifier, abstention tiers, risk–coverage | Built and measured. The finding is a null: eight features do not beat one. Both stages ship behind flags carrying their own p-values |
 | **P4** ✅ | Artifact and counterfactual replay over persisted traces | |
 | **P5** | Retrieval-stage shedding and a real load test | The latency frontier is measured; the shedding policy is not tested under load |

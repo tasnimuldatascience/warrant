@@ -182,6 +182,22 @@ reachable at floor 2017-01-01:   0/38  ->  38/38
 38 believed chunks have no vector
 ```
 
+## The interface
+
+Four screens over the same API: **Ask**, **Timeline**, **Diff**, **Trace**. `make serve`
+mounts them at `:8000` — the build is committed, so a clone gets a working interface with no
+node toolchain.
+
+Ask consumes `/api/ask/stream` rather than `/api/ask`, and that is the whole design argument.
+Retrieval finishes in ~18 ms and generation takes ~6.6 s, so the **evidence renders the moment
+it arrives** and the prose follows when it is real. Tokens are deliberately not streamed: the
+model emits a JSON envelope whose partial states are half-written citations, and putting an
+unresolved reference in front of a reader for several seconds is the precise failure this
+project exists to detect.
+
+Superseded text carries a stamp, because half of what this corpus holds is law that has been
+repealed and a reader has to see that at a glance rather than by reading a date.
+
 ## Operations
 
 `/metrics` is Prometheus text, hand-emitted — labels bounded by construction (a route
