@@ -2,191 +2,260 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>warrant — block diagram</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,200;6..72,300;6..72,400;6..72,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<title>warrant — system architecture</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
+  /* A production diagram, drawn the way engineering diagrams are drawn: white ground,
+     grouped panels with a caption under each, thin-bordered nodes, dark arrows. Nothing
+     here fades in. The boxes are the system and the system does not appear gradually --
+     only the connectors move, because the flow is the thing worth animating. */
   :root{
-    --paper:#eceeef; --leaf:#f9fafa; --ink:#12161a; --muted:#5a656d;
-    --rule:#cfd5d8; --firm:#a7b1b7; --accent:#1a4f7a; --wash:#dbe6ef;
-    --stamp:#9b2c22; --ok:#23684a;
-    --serif:"Newsreader",Georgia,serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+    --page:#ffffff; --ink:#1a1f24; --muted:#5c666e; --hair:#2b3238;
+    --blue:#15599c; --wire:#39424a;
+    --p-ingest:#d7e7f7; --p-store:#e0dcf0; --p-retr:#eceef0; --p-gen:#d9ecdf;
+    --p-obs:#fadcd5; --p-trace:#eceef0;
+    --off:#9aa3aa; --hot:#15599c; --stamp:#a8362a;
+    --sans:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--serif)}
-  body{width:1400px;height:760px;overflow:hidden;position:relative}
+  html,body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans)}
+  body{width:1700px;height:1060px;overflow:hidden;position:relative}
 
-  .head{padding:24px 48px 11px;display:flex;align-items:baseline;justify-content:space-between;
-        border-bottom:2px solid var(--ink)}
-  .mark{font-size:23px;font-weight:600;letter-spacing:.06em}
-  .sub{font-family:var(--mono);font-size:10px;letter-spacing:.17em;text-transform:uppercase;
-       color:var(--muted)}
-  .hair{margin:0 48px;border-bottom:1px solid var(--ink);height:3px}
+  .title{position:absolute;top:26px;left:0;right:0;text-align:center;
+         font-size:42px;font-weight:700;color:var(--blue);letter-spacing:-.018em}
+  .subtitle{position:absolute;top:88px;left:0;right:0;text-align:center;
+            font-family:var(--mono);font-size:16.5px;letter-spacing:.13em;
+            text-transform:uppercase;color:var(--muted)}
 
-  svg{position:absolute;inset:0;width:1400px;height:760px;pointer-events:none}
-  .w{fill:none;stroke:var(--firm);stroke-width:1.6;marker-end:url(#ar);
+  svg.wires{position:absolute;inset:0;width:1700px;height:1060px;pointer-events:none;z-index:3}
+  /* The arrowhead is a marker, and a marker paints even when the path it belongs to is
+     fully dash-offset -- so it has to be withheld until the line that earns it arrives. */
+  .w{fill:none;stroke:var(--wire);stroke-width:2.3;marker-end:none;
      stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
-     transition:stroke-dashoffset .5s ease}
-  .w.on{stroke-dashoffset:0}
-  .w.hot{stroke:var(--accent);stroke-width:2.2;marker-end:url(#arh)}
-  .w.thin{stroke:var(--rule);stroke-width:1.2;stroke-dasharray:5 4;marker-end:none;
-          stroke-dashoffset:0;opacity:0;transition:opacity .5s}
-  .w.thin.on{opacity:1}
+     transition:stroke-dashoffset .52s cubic-bezier(.32,.72,.3,1)}
+  .w.on{stroke-dashoffset:0;marker-end:url(#ar)}
+  .w.hot{stroke:var(--hot);stroke-width:3}
+  .w.hot.on{marker-end:url(#arh)}
+  .w.dim{stroke:var(--off);stroke-width:1.8;stroke-dasharray:none;marker-end:none;
+         opacity:0;transition:opacity .5s ease}
+  .w.dim.on{opacity:1;marker-end:url(#ard)}
+  /* the pulse: one dot per hot leg, travelling the drawn path on a loop */
+  .pulse{fill:var(--hot);opacity:0}
+  .pulse.on{opacity:1}
 
-  .band{position:absolute;font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;
-        text-transform:uppercase;color:var(--muted);opacity:0;transition:opacity .4s}
-  .band.on{opacity:1}
+  .panel{position:absolute;border:1.4px solid #b9c2c9;border-radius:3px;z-index:1}
+  .panel .cap{position:absolute;left:0;right:0;bottom:10px;text-align:center;
+              font-family:var(--mono);font-size:15px;letter-spacing:.15em;
+              text-transform:uppercase;color:#46525b}
+  .p-ingest{background:var(--p-ingest)} .p-store{background:var(--p-store)}
+  .p-retr{background:var(--p-retr)}     .p-gen{background:var(--p-gen)}
+  .p-obs{background:var(--p-obs)}       .p-trace{background:var(--p-trace)}
 
-  .b{position:absolute;background:var(--leaf);border:1.6px solid var(--ink);
-     padding:9px 12px;opacity:0;transform:translateY(8px);
-     transition:opacity .4s ease,transform .4s ease}
-  .b.on{opacity:1;transform:none}
-  .b .t{font-family:var(--mono);font-size:12.5px;white-space:nowrap;letter-spacing:.01em}
-  .b .s{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.3}
-  .b.key{border-width:2.6px;background:var(--wash)}
-  .b.key .t{color:var(--stamp);font-weight:600}
-  .b.off{border-style:dashed;border-color:var(--firm);background:transparent}
-  .b.off .t,.b.off .s{color:var(--firm)}
-  .b.src{padding:6px 11px;background:var(--leaf)}
-  .b.src .t{font-size:11.5px}
-  .b.src .a{font-family:var(--mono);font-size:9px;color:var(--muted);float:right;
-            margin-left:14px;letter-spacing:.08em}
+  .n{position:absolute;background:#fff;border:2.1px solid var(--hair);border-radius:3px;
+     padding:12px 16px;z-index:2}
+  .n .t{font-family:var(--mono);font-size:19px;font-weight:600;white-space:nowrap;
+        letter-spacing:-.01em}
+  .n .s{font-size:17px;color:var(--muted);margin-top:7px;line-height:1.38}
+  .n.sm{padding:11px 15px} .n.sm .t{font-size:18px}
+  .n.key{border-width:3px;border-color:var(--blue)}
+  .n.key .t{color:var(--blue);font-weight:600}
+  .n.shed{border-style:dashed;border-color:var(--off);background:#fbfbfc}
+  .n.shed .t{color:var(--stamp)} .n.shed .s{color:var(--off)}
+  .n .num{font-family:var(--mono);font-size:13px;color:#93a0a8;float:right;margin-left:16px;
+          letter-spacing:.09em;line-height:1.5}
 
-  .foot{position:absolute;left:48px;right:48px;bottom:26px;padding-top:12px;
-        border-top:2px solid var(--ink);display:flex;justify-content:space-between;
-        align-items:baseline;opacity:0;transition:opacity .5s}
-  .foot.on{opacity:1}
-  .foot .big{font-size:18px;font-weight:300}
-  .foot .src2{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+  .foot{position:absolute;left:52px;right:52px;bottom:22px;padding-top:14px;
+        border-top:2px solid var(--hair);display:flex;justify-content:space-between;
+        align-items:baseline;z-index:2}
+  .foot .big{font-size:26px;font-weight:600}
+  .foot .url{font-family:var(--mono);font-size:17px;color:var(--blue)}
 </style>
 </head>
 <body>
-  <div class="head">
-    <div style="display:flex;align-items:baseline;gap:15px">
-      <span class="mark">WARRANT</span><span class="sub">system architecture</span>
-    </div>
-    <span class="sub">bitemporal retrieval over 5 CFR &middot; 13,212 chunk versions</span>
-  </div>
-  <div class="hair"></div>
 
-  <svg viewBox="0 0 1400 760">
-    <defs>
-      <marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-        <path d="M0,0 L7,3 L0,6 z" fill="#a7b1b7"/></marker>
-      <marker id="arh" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-        <path d="M0,0 L7,3 L0,6 z" fill="#1a4f7a"/></marker>
-    </defs>
-    <path class="w" id="w1" d="M212 230 H268"/>
-    <path class="w" id="w2" d="M404 230 H460"/>
-    <path class="w hot" id="w3" d="M636 230 H700"/>
-    <path class="w hot" id="w4" d="M876 212 Q900 212 900 192 V170 H944"/>
-    <path class="w hot" id="w5" d="M876 248 Q900 248 900 268 V290 H944"/>
-    <path class="w" id="w6" d="M1120 170 Q1150 170 1150 194 V222 H1186"/>
-    <path class="w" id="w7" d="M1120 290 Q1150 290 1150 266 V238 H1186"/>
-    <path class="w" id="w8" d="M1352 224 Q1376 224 1376 248 V344 Q1376 368 1352 368 H736"/>
-    <path class="w hot" id="w9" d="M612 392 V438"/>
-    <path class="w" id="w10" d="M760 468 H820"/>
-    <path class="w hot" id="w11" d="M1040 468 H1102"/>
-    <path class="w thin" id="w12" d="M636 496 V552"/>
-    <path class="w thin" id="w13" d="M930 496 V552"/>
-    <path class="w thin" id="w14" d="M1214 496 V552"/>
-  </svg>
+<div class="title">Warrant &mdash; Bitemporal RAG over US Federal Regulation</div>
+<div class="subtitle">answers as of a date &middot; localizes every wrong answer to the stage responsible</div>
 
-  <!-- band labels -->
-  <div class="band" id="bd1" style="left:48px;top:118px">sources</div>
-  <div class="band" id="bd2" style="left:268px;top:118px">ingest</div>
-  <div class="band" id="bd3" style="left:460px;top:118px">store</div>
-  <div class="band" id="bd4" style="left:700px;top:118px">retrieval</div>
-  <div class="band" id="bd5" style="left:460px;top:420px">generation &middot; verification</div>
+<!-- ============================ panels ============================ -->
+<div class="panel p-ingest" style="left:52px;top:116px;width:988px;height:268px">
+  <div class="cap">Scheduled Ingestion Pipeline</div></div>
+<div class="panel p-store" style="left:1072px;top:116px;width:576px;height:268px">
+  <div class="cap">Bitemporal Store</div></div>
+<div class="panel p-retr" style="left:52px;top:416px;width:1596px;height:240px">
+  <div class="cap">Predicate-Gated Retrieval</div></div>
+<div class="panel p-gen" style="left:52px;top:688px;width:988px;height:212px">
+  <div class="cap">Generation &amp; Verification</div></div>
+<div class="panel p-obs" style="left:1072px;top:688px;width:576px;height:212px">
+  <div class="cap">Observability &amp; Quality Gate</div></div>
+<div class="panel p-trace" style="left:52px;top:918px;width:1596px;height:74px"></div>
 
-  <!-- sources -->
-  <div class="b src" id="s1" style="left:48px;top:142px;width:164px"><span class="a">1</span><span class="t">5 U.S.C.</span></div>
-  <div class="b src" id="s2" style="left:48px;top:180px;width:164px"><span class="a">2</span><span class="t">eCFR</span></div>
-  <div class="b src" id="s3" style="left:48px;top:218px;width:164px"><span class="a">3</span><span class="t">Fed. Register</span></div>
-  <div class="b src" id="s4" style="left:48px;top:256px;width:164px"><span class="a">4</span><span class="t">OPM</span></div>
-  <div class="b src" id="s5" style="left:48px;top:294px;width:164px"><span class="a">5</span><span class="t">govinfo · OCR</span></div>
+<!-- ============================ nodes ============================= -->
+<div class="n sm" style="left:74px;top:136px;width:186px"><span class="num">1</span><div class="t">5 U.S.C.</div></div>
+<div class="n sm" style="left:74px;top:178px;width:186px"><span class="num">2</span><div class="t">eCFR</div></div>
+<div class="n sm" style="left:74px;top:220px;width:186px"><span class="num">3</span><div class="t">Fed. Register</div></div>
+<div class="n sm" style="left:74px;top:262px;width:186px"><span class="num">4</span><div class="t">OPM</div></div>
+<div class="n sm" style="left:74px;top:304px;width:186px"><span class="num">5</span><div class="t">govinfo</div></div>
 
-  <!-- ingest -->
-  <div class="b" id="ing" style="left:268px;top:196px;width:136px">
-    <div class="t">ingest</div><div class="s">parse · strip<br>apparatus · diff</div>
-  </div>
+<div class="n" style="left:292px;top:200px;width:220px">
+  <div class="t">parse &middot; strip</div><div class="s">headings, notes<br>and apparatus</div></div>
+<div class="n" style="left:540px;top:200px;width:220px">
+  <div class="t">structural diff</div><div class="s">by tree,<br>not by text</div></div>
+<div class="n" style="left:788px;top:200px;width:232px">
+  <div class="t">chunk versions</div><div class="s">13,212 across<br>26 CFR parts</div></div>
 
-  <!-- store -->
-  <div class="b key" id="store" style="left:460px;top:182px;width:176px">
-    <div class="t">bitemporal store</div>
-    <div class="s">valid × system time<br>SQLite · FTS5 · vectors</div>
-  </div>
+<div class="n key" style="left:1096px;top:172px;width:316px">
+  <div class="t">valid_from &rarr; valid_to</div><div class="s">when it was law</div></div>
+<div class="n key" style="left:1096px;top:272px;width:316px">
+  <div class="t">system_from &rarr; system_to</div><div class="s">when we knew it</div></div>
+<div class="n sm" style="left:1436px;top:172px;width:188px"><div class="t">SQLite</div></div>
+<div class="n sm" style="left:1436px;top:222px;width:188px"><div class="t">FTS5 index</div></div>
+<div class="n sm" style="left:1436px;top:272px;width:188px"><div class="t">vectors</div></div>
 
-  <!-- predicates -->
-  <div class="b key" id="pred" style="left:700px;top:190px;width:176px">
-    <div class="t">predicates</div>
-    <div class="s">as-of + scope,<br>pushed into the query</div>
-  </div>
+<div class="n" style="left:74px;top:468px;width:220px">
+  <div class="t">question</div><div class="s">+ as-of date<br>+ scope</div></div>
+<div class="n key" style="left:322px;top:464px;width:274px">
+  <div class="t">predicates</div><div class="s">pushed into SQL<br>9,627 admitted</div></div>
+<div class="n" style="left:624px;top:440px;width:232px">
+  <div class="t">BM25 &middot; FTS5</div><div class="s">14.1 ms</div></div>
+<div class="n" style="left:624px;top:540px;width:232px">
+  <div class="t">dense &middot; cosine</div><div class="s">15.1 ms, concurrent</div></div>
+<div class="n" style="left:884px;top:464px;width:232px">
+  <div class="t">RRF fusion</div><div class="s">ranks, not scores<br>62 &rarr; 16</div></div>
+<div class="n shed" style="left:1144px;top:468px;width:228px">
+  <div class="t">rerank &mdash; off</div><div class="s">+0.5, p = 0.79</div></div>
+<div class="n key" style="left:1400px;top:464px;width:200px">
+  <div class="t">16</div><div class="s">cited, in force</div></div>
 
-  <!-- retrievers -->
-  <div class="b" id="bm" style="left:944px;top:144px;width:176px">
-    <div class="t">BM25 · FTS5</div><div class="s">14.1 ms</div>
-  </div>
-  <div class="b" id="dn" style="left:944px;top:264px;width:176px">
-    <div class="t">dense · cosine</div><div class="s">15.1 ms · concurrent</div>
-  </div>
+<div class="n" style="left:74px;top:730px;width:300px">
+  <div class="t">generation</div><div class="s">claims + evidence ids &middot; 6.6 s</div></div>
+<div class="n" style="left:402px;top:726px;width:286px">
+  <div class="t">span alignment</div><div class="s">computed, never written<br>&mdash; may return null</div></div>
+<div class="n key" style="left:716px;top:730px;width:300px">
+  <div class="t">answer + trace id</div><div class="s">replayable, stage by stage</div></div>
 
-  <!-- fuse + rerank -->
-  <div class="b" id="fu" style="left:1186px;top:198px;width:166px">
-    <div class="t">RRF fusion</div><div class="s">ranks, not scores</div>
-  </div>
-  <div class="b off" id="rr" style="left:1186px;top:266px;width:166px">
-    <div class="t">rerank — off</div><div class="s">+0.5, p = 0.79</div>
-  </div>
+<div class="n sm" style="left:1096px;top:706px;width:528px">
+  <div class="t">/metrics &middot; 320 series</div></div>
+<div class="n sm" style="left:1096px;top:760px;width:528px">
+  <div class="t">request_id &middot; trace_id</div></div>
+<div class="n sm" style="left:1096px;top:814px;width:528px;border-color:#15599c">
+  <div class="t" style="color:#15599c">eval gate &middot; bootstrap lower bound</div></div>
 
-  <!-- evidence -->
-  <div class="b key" id="ev" style="left:512px;top:338px;width:200px">
-    <div class="t">16 chunks, cited</div>
-    <div class="s">in force on the asked date</div>
-  </div>
+<div class="n" style="left:74px;top:930px;width:1552px">
+  <div class="t">trace store &middot; artifact replay reconstructs a past request &middot; counterfactual replay reruns it through today&rsquo;s pipeline</div></div>
 
-  <!-- generation / verify / answer -->
-  <div class="b" id="gen" style="left:512px;top:438px;width:248px">
-    <div class="t">generation</div><div class="s">claims + evidence ids · 6.6 s</div>
-  </div>
-  <div class="b" id="ver" style="left:820px;top:438px;width:220px">
-    <div class="t">span alignment</div><div class="s">every id was retrieved</div>
-  </div>
-  <div class="b key" id="ans" style="left:1102px;top:438px;width:224px">
-    <div class="t">answer + trace id</div><div class="s">replayable, stage by stage</div>
-  </div>
+<!-- ============================ wires ============================= -->
+<svg class="wires" viewBox="0 0 1700 1060">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7.6" refY="3" orient="auto">
+      <path d="M0,0 L7.4,3 L0,6 z" fill="#39424a"/></marker>
+    <marker id="arh" markerWidth="9" markerHeight="9" refX="7.6" refY="3" orient="auto">
+      <path d="M0,0 L7.4,3 L0,6 z" fill="#15599c"/></marker>
+    <marker id="ard" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L6.6,3 L0,6 z" fill="#9aa3aa"/></marker>
+  </defs>
 
-  <!-- trace store -->
-  <div class="b" id="tr" style="left:512px;top:556px;width:814px">
-    <div class="t">trace store &amp; metrics — every stage records what it saw, what it ranked, what it cost</div>
-    <div class="s">artifact replay reconstructs a past request · counterfactual replay reruns it through today's pipeline · /metrics exposes 320 series, rendered on the observability screen</div>
-  </div>
+  <path class="w" id="w1" d="M260 240 H286"/>
+  <path class="w" id="w2" d="M512 246 H534"/>
+  <path class="w" id="w3" d="M760 246 H782"/>
+  <path class="w hot" id="w4" d="M1020 246 H1090"/>
 
-  <div class="foot" id="foot">
-    <span class="big">A wrong answer has an address, not an excuse.</span>
-    <span class="src2">github.com/tasnimuldatascience/warrant</span>
-  </div>
+  <path class="w hot" id="w5" d="M1254 350 V400 H459 V458"/>
+
+  <path class="w" id="w6" d="M294 512 H316"/>
+  <path class="w hot" id="w7" d="M596 496 H610 V472 H618"/>
+  <path class="w hot" id="w8" d="M596 528 H610 V574 H618"/>
+  <path class="w" id="w9" d="M856 478 H868 V492 H878"/>
+  <path class="w" id="w10" d="M856 578 H868 V532 H878"/>
+  <path class="w dim" id="w11" d="M1116 506 H1138"/>
+  <path class="w" id="w12" d="M1372 506 H1394"/>
+
+  <path class="w hot" id="w13" d="M1500 542 V672 H224 V724"/>
+
+  <path class="w" id="w14" d="M374 768 H396"/>
+  <path class="w hot" id="w15" d="M688 768 H710"/>
+  <path class="w" id="w16" d="M1016 754 H1090"/>
+
+  <path class="w dim" id="w17" d="M224 810 V924"/>
+  <path class="w dim" id="w18" d="M866 828 V924"/>
+  <path class="w dim" id="w19" d="M1580 866 V924"/>
+
+  <circle class="pulse" id="pl" r="6"/>
+</svg>
+
+<div class="foot">
+  <span class="big">A wrong answer has an address, not an excuse.</span>
+  <span class="url">github.com/tasnimuldatascience/warrant</span>
+</div>
 
 <script>
-  const $=(i)=>document.getElementById(i), wait=(ms)=>new Promise(r=>setTimeout(r,ms));
-  const on=(...ids)=>ids.forEach(i=>$(i).classList.add('on'));
-  for(const w of document.querySelectorAll('.w')) w.style.setProperty('--len', w.getTotalLength());
+const $  = (i) => document.getElementById(i);
+const wait = (ms) => new Promise(r => setTimeout(r, ms));
+const on = (...ids) => ids.forEach(i => $(i).classList.add('on'));
+const off = (...ids) => ids.forEach(i => $(i).classList.remove('on'));
 
-  async function play(){
-    on('bd1'); await wait(180);
-    for(const s of ['s1','s2','s3','s4','s5']){ on(s); await wait(90); }
-    await wait(170); on('w1','bd2'); await wait(300); on('ing'); await wait(430);
-    on('w2','bd3');  await wait(300); on('store'); await wait(600);
-    on('w3','bd4');  await wait(320); on('pred');  await wait(700);
-    on('w4','w5');   await wait(330); on('bm','dn'); await wait(620);
-    on('w6','w7');   await wait(320); on('fu');    await wait(330); on('rr'); await wait(560);
-    on('w8');        await wait(340); on('ev','bd5'); await wait(620);
-    on('w9');        await wait(280); on('gen');   await wait(560);
-    on('w10');       await wait(250); on('ver');   await wait(500);
-    on('w11');       await wait(250); on('ans');   await wait(700);
-    on('w12','w13','w14'); await wait(300); on('tr'); await wait(1100);
-    on('foot');
+const WIRES = [...document.querySelectorAll('.w')];
+for (const w of WIRES) w.style.setProperty('--len', w.getTotalLength());
+
+// The pulse rides the same paths the wires drew, so the moving dot and the drawn line
+// cannot disagree about where the request goes.
+
+function ride(id, ms){
+  const path = $(id), len = path.getTotalLength(), dot = $('pl'), t0 = performance.now();
+  dot.classList.add('on');
+  return new Promise(done => {
+    (function step(now){
+      const k = Math.min(1, (now - t0) / ms);
+      const p = path.getPointAtLength(k * len);
+      dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y);
+      if (k < 1) requestAnimationFrame(step);
+      else { dot.classList.remove('on'); done(); }
+    })(t0);
+  });
+}
+
+async function cycle(){
+  on('w1');              await wait(300);
+  on('w2');              await wait(300);
+  on('w3');              await wait(320);
+  on('w4');              await wait(260);  await ride('w4', 380);
+  on('w5');              await wait(520);  await ride('w5', 950);
+  on('w6');              await wait(330);
+  on('w7','w8');         await wait(430);  await ride('w7', 340);
+  on('w9','w10');        await wait(430);
+  on('w11');             await wait(280);
+  on('w12');             await wait(430);
+  on('w13');             await wait(560);  await ride('w13', 1000);
+  on('w14');             await wait(360);
+  on('w15');             await wait(300);  await ride('w15', 340);
+  on('w16');             await wait(430);
+  on('w17','w18','w19'); await wait(1600);
+}
+
+// The GIF has to be exactly one cycle long or it stutters where it wraps, so the page
+// measures its own loop and publishes it rather than the builder guessing at the timings.
+let running = true;
+async function play(){
+  while (running) {
+    const t = performance.now();
+    await cycle();
+    off(...WIRES.map(w => w.id));   // reset for a clean loop
+    await wait(260);                // brief -- a long blank reads as a glitch, not a restart
+    window.__cycleMs = performance.now() - t;
   }
-  setTimeout(play, 550);
+}
+
+// Nothing is scheduled at load: the recorder needs the fonts painted before the first
+// wire moves, or the opening of the loop is simply missing from the capture.
+window.__run = () => { requestAnimationFrame(() => requestAnimationFrame(play)); };
+
+// The README wants one still with every wire drawn, which is a state the loop only holds
+// for a beat. This pins it: stop cycling, draw everything, hold.
+window.__freeze = () => {
+  running = false;
+  for (const w of WIRES) { w.style.transition = 'none'; w.classList.add('on'); }
+  $('pl').style.display = 'none';   // a ride already in flight would re-add the class
+};
 </script>
 </body>
 </html>
