@@ -1,0 +1,12 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 1000, "title": "Ask" },
+    { "file": "Timeline.dc.html", "x": 1560, "y": 0, "w": 1440, "h": 1000 },
+    { "file": "Trace.dc.html", "x": 3120, "y": 0, "w": 1440, "h": 1000 }
+  ],
+  "annotations": [
+    { "id": "thesis", "x": 0, "y": -150, "w": 520, "text": "The hero is the thesis: one question, two dates, two correct answers. Evidence lands at 18ms; the prose hatches while the model works. That asymmetry is the reason the streaming endpoint exists." },
+    { "id": "stamp", "x": 1560, "y": -150, "w": 460, "text": "SUPERSEDED is the signature element. Half this corpus is law that no longer applies, and a reader has to see that at a glance rather than by reading a date." }
+  ],
+  "launch": { "view": "canvas" }
+}

@@ -1,0 +1,114 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200;0,6..72,300;0,6..72,400;0,6..72,600;1,6..72,300;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #eceeef; }
+    a { color: #1a4f7a; } a:hover { color: #123a5c; }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 1000px; background: #eceeef; color: #12161a; font-family: Newsreader, Georgia, serif; padding: 0 0 72px;">
+
+  <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 26px 64px 14px; border-bottom: 2px solid #12161a;">
+    <div style="display: flex; align-items: baseline; gap: 18px;">
+      <span style="font-size: 27px; font-weight: 600; letter-spacing: 0.06em;">WARRANT</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.14em; color: #5a656d; text-transform: uppercase;">5 CFR &middot; point-in-time</span>
+    </div>
+    <div style="display: flex; gap: 30px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5a656d;">
+      <span>Ask</span>
+      <span>Timeline</span>
+      <span>Diff</span>
+      <span style="color: #12161a; border-bottom: 2px solid #9b2c22; padding-bottom: 3px;">Trace</span>
+    </div>
+  </div>
+  <div style="height: 4px; border-bottom: 1px solid #12161a; margin: 0 64px;"></div>
+
+  <div style="padding: 48px 64px 0;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: #9b2c22; margin-bottom: 18px;">What each stage saw, and what it cost</div>
+    <h1 style="font-size: 52px; line-height: 1.05; font-weight: 300; margin: 0 0 12px; letter-spacing: -0.02em;">Every wrong answer has an address.</h1>
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5a656d; letter-spacing: 0.04em;">trace 89acf562ae90438f &middot; config dbac692062d7 &middot; recorded 2026&#8209;08&#8209;31 02:14 UTC</div>
+  </div>
+
+  <!-- the ladder -->
+  <div style="margin: 46px 64px 0;">
+    <div style="display: grid; grid-template-columns: 156px 1fr 92px 132px; gap: 0; border-top: 2px solid #12161a; border-bottom: 1px solid #12161a; padding: 9px 0; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: #5a656d;">
+      <span>Stage</span><span>Candidates surviving</span><span style="text-align: right;">Out</span><span style="text-align: right;">Cost</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 156px 1fr 92px 132px; gap: 0; align-items: center; padding: 15px 0; border-bottom: 1px solid #e2e5e7;">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px;">predicates</span>
+      <div style="padding-right: 32px;"><div style="height: 15px; width: 100%; background: #1a4f7a;"></div></div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">9,627</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; color: #23684a;">0.02&#8239;ms</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 156px 1fr 92px 132px; gap: 0; align-items: center; padding: 15px 0; border-bottom: 1px solid #e2e5e7;">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px;">lexical</span>
+      <div style="padding-right: 32px;"><div style="height: 15px; width: 21%; background: #1a4f7a;"></div></div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">100</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">14.1&#8239;ms</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 156px 1fr 92px 132px; gap: 0; align-items: center; padding: 15px 0; border-bottom: 1px solid #e2e5e7;">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px;">dense</span>
+      <div style="padding-right: 32px;"><div style="height: 15px; width: 21%; background: #1a4f7a;"></div></div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">100</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">15.1&#8239;ms</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 156px 1fr 92px 132px; gap: 0; align-items: center; padding: 15px 0; border-bottom: 1px solid #e2e5e7;">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px;">fusion</span>
+      <div style="padding-right: 32px;"><div style="height: 15px; width: 13%; background: #1a4f7a;"></div></div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">62</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">0.27&#8239;ms</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 156px 1fr 92px 132px; gap: 0; align-items: center; padding: 15px 0; border-bottom: 1px solid #e2e5e7; opacity: 0.45;">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px;">rerank</span>
+      <div style="padding-right: 32px;"><div style="height: 15px; width: 13%; background: repeating-linear-gradient(115deg, #a7b1b7 0 5px, transparent 5px 10px); border: 1px dashed #a7b1b7;"></div></div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right;">&mdash;</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; text-align: right; letter-spacing: 0.1em; text-transform: uppercase;">off</span>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 156px 1fr 92px 132px; gap: 0; align-items: center; padding: 15px 0; border-bottom: 2px solid #12161a;">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px;">final</span>
+      <div style="padding-right: 32px;"><div style="height: 15px; width: 3.4%; background: #12161a;"></div></div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums;">16</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600;">18.4&#8239;ms</span>
+    </div>
+  </div>
+
+  <!-- why the reranker is off -->
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 56px; margin: 52px 64px 0;">
+    <div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; border-bottom: 1px solid #12161a; padding-bottom: 9px; margin-bottom: 20px;">Why rerank is off</div>
+      <p style="margin: 0 0 16px; font-size: 18px; line-height: 1.5; font-weight: 300;">It buys <span style="font-family: 'IBM Plex Mono', monospace; font-size: 16px;">+0.5</span> points of sufficiency at <span style="font-family: 'IBM Plex Mono', monospace; font-size: 16px;">p&#8239;=&#8239;0.79</span> and costs 78% of query latency.</p>
+      <p style="margin: 0; font-size: 15px; line-height: 1.55; color: #3d474e; font-weight: 300;">Four stages ship disabled, each with its own p&#8209;value beside the flag. A stage that cannot be shown to help does not run just because it exists.</p>
+    </div>
+    <div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; border-bottom: 1px solid #12161a; padding-bottom: 9px; margin-bottom: 20px;">Replay</div>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: baseline; gap: 14px; font-size: 15.5px; font-weight: 300; line-height: 1.45;">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #1a4f7a; flex-shrink: 0; width: 78px;">artifact</span>
+          <span>reconstruct this request from the stored trace, without re&#8209;running retrieval.</span>
+        </div>
+        <div style="display: flex; align-items: baseline; gap: 14px; font-size: 15.5px; font-weight: 300; line-height: 1.45;">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #1a4f7a; flex-shrink: 0; width: 78px;">counterfactual</span>
+          <span>run it through today's pipeline and report the first stage that moved.</span>
+        </div>
+      </div>
+      <div style="margin-top: 22px; border: 1px solid #a7b1b7; padding: 13px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #3d474e; background: #f9fafa;">warrant replay diff 89acf562ae90438f</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
