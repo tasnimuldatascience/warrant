@@ -206,7 +206,8 @@ The five-switched-off slide is the one that gets a reply from an engineer. Give 
 
 | file | what it is |
 |---|---|
-| `warrant-demo.mp4` | 1080p, 74s, captions burned in, **silent** |
+| `warrant-film.mp4` | 1080p, 105s, **narrated** — the explainer, built typographically |
+| `warrant-demo.mp4` | 1080p, 74s, captions burned in, **silent** — the screen recording |
 | `warrant-demo-narrated.mp4` | the same cut with a synthesised scratch track |
 | `warrant-demo.gif` | 14s, full frame — general purpose |
 | `warrant-linkedin.gif` | 14s, 1000×730, 2.9 MB — cropped to the content column |
@@ -230,10 +231,10 @@ captures the *page* and so cannot film your tabs, bookmarks or wallpaper, and th
 fixed, so the framing is identical every time. The first attempt used desktop capture and put
 a personal desktop in frame.
 
-**There is no voice-over, deliberately.** Record it separately against the SRT and mux it.
-Narrating live ties the pacing of your sentences to the pacing of a language model, and only
-one of those is under your control. Captions are burned in because most feed viewers watch
-muted.
+**The screen recording carries no voice-over, deliberately.** Narrating a live capture ties
+the pacing of your sentences to the pacing of a language model, and only one of those is under
+your control. Captions are burned in because most feed viewers watch muted. The narrated piece
+is a separate film — see *The film* below — assembled the other way round, audio first.
 
 The thumbnail is drawn rather than screenshotted: a downscaled UI screenshot is unreadable at
 the size a feed renders it, which is why most engineering thumbnails are.
@@ -263,8 +264,12 @@ claims — with the cost beside every stage and the reranker visibly switched of
 It is also the only asset that shows the thing worth arguing about: **a component that is
 built, measured, and disabled.** Nobody scrolls past that.
 
-Keep `warrant-demo.mp4` for the YouTube upload and for anyone who asks to see it working. The
-architecture loop earns the click; the walkthrough rewards it.
+**`warrant-film.mp4` is the one for YouTube.** It is the only asset that makes the argument
+rather than demonstrating the interface: why the date matters, what it costs to leave it out,
+and why five working components ship disabled. Keep `warrant-demo.mp4` for anyone who asks to
+see it actually running.
+
+The architecture loop earns the click; the film makes the case; the walkthrough proves it.
 
 ### About the narrated cut
 
@@ -283,3 +288,37 @@ powershell -File scripts/narrate.ps1     # rebuilds the scratch track from the S
 
 Silent remains the default for `warrant-demo.mp4`, because most feed viewers watch muted and
 the captions are burned in.
+
+## The film
+
+`warrant-film.mp4` — 105 seconds, narrated, nine scenes, no screen recording in it at all.
+
+It is built **audio first**, and that ordering is the whole design. `scripts/voice.py` speaks
+each of the 21 lines and *measures* it; `scripts/film.py` reads those real durations and lays
+the scenes against them, so a sentence and the thing it describes land together:
+
+```bash
+pip install edge-tts                # free, MIT, no account, no key
+python scripts/voice.py             # writes media/_voice/NN.mp3 and a timing table
+python scripts/film.py              # then the film, timed to what was actually said
+```
+
+Timing visuals to a *guessed* narration and hoping the voice fits is how a cut ends up
+explaining something two beats after it happened. Here the manifest is the timeline: 90.8s of
+speech, plus a 0.34s beat between lines and 0.86s between scenes, plus a lead-in and a tail —
+105.5s, and every scene boundary derived rather than typed.
+
+**No screen capture.** A UI recording asks a stranger to read someone else's interface at feed
+size. The film states the argument typographically instead — one claim per frame, the number
+that supports it beneath, and the p-value that decided it in the margin. The chapter rail along
+the bottom is proportional to each scene's *narrated* length, so it is a truthful progress bar
+rather than nine equal ticks.
+
+**On the voice.** `en-US-AndrewNeural` through `edge-tts`, at `+6%`. This is a neural voice, not
+the Windows SAPI reader in `warrant-demo-narrated.mp4`, and it does not read as a shortcut the
+way that one does. It is still synthetic: a human take would be better, and the script is right
+there in `scripts/voice.py` if you want to record over it — the builder only needs the mp3
+durations, so a real recording drops straight in.
+
+`edge-tts` is a **build-time** dependency for making a video. Nothing in `warrant` imports it,
+and no part of running the system needs it.

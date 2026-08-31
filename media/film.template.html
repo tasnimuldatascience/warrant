@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>warrant</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200;0,6..72,300;0,6..72,400;0,6..72,600;1,6..72,300&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ink:#0f1418; --paper:#eceeef; --leaf:#f9fafa; --muted:#7d8790; --dim:#4a545c;
+    --accent:#5b95d0; --accentd:#1a4f7a; --stamp:#c4544a; --stampd:#9b2c22; --ok:#5fb08a;
+    --serif:"Newsreader",Georgia,serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--ink);color:var(--paper);font-family:var(--serif);
+            width:1600px;height:900px;overflow:hidden}
+  .scene{position:absolute;inset:0;opacity:0;pointer-events:none;
+         transition:opacity .42s ease}
+  .scene.live{opacity:1}
+  .pad{position:absolute;inset:0;padding:92px 116px;display:flex;flex-direction:column;
+       justify-content:center}
+
+  .eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:.24em;text-transform:uppercase;
+           color:var(--stamp);margin-bottom:26px}
+  h1{font-size:92px;line-height:1.04;font-weight:200;margin:0;letter-spacing:-.03em;
+     max-width:24ch;text-wrap:balance}
+  h2{font-size:68px;line-height:1.1;font-weight:200;margin:0;letter-spacing:-.025em;
+     max-width:26ch;text-wrap:balance}
+  .lead{font-size:33px;line-height:1.44;font-weight:300;color:var(--muted);margin-top:32px;
+        max-width:56ch}
+  .accent{color:var(--accent)}
+  .warn{color:var(--stamp)}
+
+  /* staged reveal inside a scene */
+  .beat{opacity:0;transform:translateY(16px);
+        transition:opacity .5s ease,transform .5s ease}
+  .beat.on{opacity:1;transform:none}
+
+  /* the amendment */
+  .quote{font-size:42px;line-height:1.46;font-weight:300;max-width:30ch;
+         border-left:3px solid var(--dim);padding-left:28px}
+  .cut{position:relative;color:var(--muted)}
+  .cut:after{content:"";position:absolute;left:-2px;right:-2px;top:52%;height:3px;
+             background:var(--stamp);transform:scaleX(0);transform-origin:left;
+             transition:transform .55s cubic-bezier(.3,.7,.3,1)}
+  .cut.struck:after{transform:scaleX(1)}
+  .cite{font-family:var(--mono);font-size:15px;color:var(--dim);margin-top:22px;
+        letter-spacing:.04em}
+
+  /* two clocks */
+  .clocks{display:grid;grid-template-columns:1fr 1fr;gap:64px;margin-top:46px}
+  .clock{border-top:2px solid var(--dim);padding-top:20px}
+  .clock b{display:block;font-family:var(--mono);font-size:13px;letter-spacing:.16em;
+           text-transform:uppercase;color:var(--accent);margin-bottom:12px;font-weight:500}
+  .clock span{font-size:27px;font-weight:300;line-height:1.35;color:var(--paper)}
+
+  /* the split */
+  .lanes{display:grid;grid-template-columns:1fr 1fr;gap:70px;margin-top:16px}
+  .lane .d{font-family:var(--mono);font-size:26px;letter-spacing:.03em;
+           padding-bottom:12px;border-bottom:2px solid var(--dim)}
+  .lane .n{font-family:var(--mono);font-size:58px;font-variant-numeric:tabular-nums;
+           margin-top:26px;letter-spacing:-.02em}
+  .lane .k{font-size:20px;color:var(--muted);margin-top:8px}
+  .lane .t{font-size:24px;line-height:1.44;font-weight:300;margin-top:28px;
+           border-left:3px solid var(--accentd);padding-left:20px;color:var(--paper)}
+  .lane.old .t{border-left-color:var(--stampd);color:var(--muted)}
+  .verdict{font-size:26px;font-style:italic;font-weight:300;margin-top:26px;color:var(--ok)}
+
+  /* the stat */
+  .stat{font-family:var(--mono);font-size:176px;letter-spacing:-.04em;line-height:1;
+        font-variant-numeric:tabular-nums;color:var(--accent)}
+  .statk{font-size:31px;color:var(--muted);margin-top:24px;font-weight:300;max-width:48ch;
+         line-height:1.4}
+  .wl{font-family:var(--mono);font-size:20px;color:var(--dim);margin-top:16px;letter-spacing:.06em}
+
+  /* ladder */
+  .rungs{margin-top:40px;display:flex;flex-direction:column;gap:0}
+  .rung{display:grid;grid-template-columns:210px 1fr 130px;gap:24px;align-items:center;
+        padding:14px 0;border-top:1px solid #232b31}
+  .rung .rn{font-family:var(--mono);font-size:19px}
+  .rung .rb{height:16px;background:var(--accentd);width:0;
+            transition:width .7s cubic-bezier(.22,.7,.25,1)}
+  .rung.lit .rb{background:var(--accent)}
+  .rung .rv{font-family:var(--mono);font-size:19px;text-align:right;
+            font-variant-numeric:tabular-nums;color:var(--muted)}
+
+  /* switched off */
+  .offs{display:flex;flex-direction:column;gap:0;margin-top:34px}
+  .off{display:grid;grid-template-columns:1fr 210px;gap:30px;align-items:baseline;
+       padding:15px 0;border-top:1px solid #232b31}
+  .off .on{font-size:29px;font-weight:300;color:var(--muted)}
+  .off .pv{font-family:var(--mono);font-size:20px;text-align:right;color:var(--stamp);
+           font-variant-numeric:tabular-nums}
+
+  /* close */
+  .mark{font-size:132px;font-weight:200;letter-spacing:-.03em}
+  .url{font-family:var(--mono);font-size:23px;color:var(--accent);margin-top:34px;
+       letter-spacing:.05em}
+  .kicker2{font-size:29px;color:var(--muted);font-weight:300;margin-top:20px;max-width:46ch;
+           line-height:1.4}
+
+  /* chapter rail — where you are in the film, and what this section is called.
+     Segments are proportional to each scene's real narrated length, so the rail
+     is a truthful progress bar rather than nine equal ticks. */
+  .rail{position:absolute;left:116px;right:116px;bottom:54px;display:flex;gap:7px;
+        align-items:center;opacity:0;transition:opacity .6s ease}
+  .rail.on{opacity:1}
+  .seg{height:3px;background:#212930;position:relative;overflow:hidden}
+  .seg i{position:absolute;inset:0;width:0;background:var(--dim);display:block}
+  .seg.now i{background:var(--accent)}
+  .chapter{position:absolute;left:116px;bottom:74px;font-family:var(--mono);font-size:12px;
+           letter-spacing:.22em;text-transform:uppercase;color:var(--dim);
+           opacity:0;transition:opacity .45s ease}
+  .chapter.on{opacity:1}
+  .wm{position:absolute;right:116px;bottom:70px;font-family:var(--mono);font-size:12px;
+      letter-spacing:.22em;text-transform:uppercase;color:var(--dim);
+      opacity:0;transition:opacity .6s ease}
+  .wm.on{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="chapter" id="chapter"></div>
+<div class="rail" id="rail"></div>
+<div class="wm" id="wm">warrant</div>
+
+<div class="scene" data-scene="hook"><div class="pad">
+  <div class="eyebrow beat" data-beat="0">retrieval over law that changes</div>
+  <h1 class="beat" data-beat="0">Ask an AI a legal question.<br>It will answer. <span class="warn">Confidently.</span></h1>
+  <div class="lead beat" data-beat="1">But the law changes.</div>
+</div></div>
+
+<div class="scene" data-scene="change"><div class="pad">
+  <div class="quote beat" data-beat="0">
+    The service period may not <span class="cut" id="strike">be less than 6 months and may not</span> exceed 4 years.
+  </div>
+  <div class="cite beat" data-beat="0">5 CFR 575.110(a)</div>
+  <div class="lead beat" data-beat="1">Six words deleted, 13 February 2026.</div>
+  <div class="lead beat" data-beat="2" style="margin-top:14px;color:var(--paper)">
+    So the right answer depends on <span class="accent">when you are asking</span>.</div>
+</div></div>
+
+<div class="scene" data-scene="problem"><div class="pad">
+  <h2 class="beat" data-beat="0">Most systems cannot tell you which answer you got.</h2>
+  <div class="lead beat" data-beat="1" style="color:var(--paper);font-size:44px;margin-top:38px">
+    This one can.</div>
+</div></div>
+
+<div class="scene" data-scene="what"><div class="pad">
+  <div class="eyebrow beat" data-beat="0">warrant</div>
+  <h2 class="beat" data-beat="0">Bitemporal retrieval over federal employment regulation.</h2>
+  <div class="clocks beat" data-beat="1">
+    <div class="clock"><b>valid time</b><span>when the text was the law</span></div>
+    <div class="clock"><b>system time</b><span>when the system believed it was</span></div>
+  </div>
+</div></div>
+
+<div class="scene" data-scene="split"><div class="pad">
+  <div class="lanes">
+    <div class="lane old beat" data-beat="0">
+      <div class="d">as of 2024</div>
+      <div class="n">9,730</div><div class="k">paragraphs admitted</div>
+      <div class="t">not less than 6 months, not more than 4 years</div>
+    </div>
+    <div class="lane beat" data-beat="1">
+      <div class="d">as of today</div>
+      <div class="n">10,007</div><div class="k">paragraphs admitted</div>
+      <div class="t">not more than 4 years — the floor is gone</div>
+    </div>
+  </div>
+  <div class="verdict beat" data-beat="2">Different evidence. Different answer. Both correct.</div>
+</div></div>
+
+<div class="scene" data-scene="gate"><div class="pad">
+  <h2 class="beat" data-beat="0">The date is not a hint in a prompt.<br>
+    It is a <span class="accent">filter pushed into the query</span>.</h2>
+  <div class="stat beat" data-beat="1" style="margin-top:44px">+96.1</div>
+  <div class="statk beat" data-beat="1">points of wrong-version rate, lost the moment you remove it</div>
+  <div class="wl beat" data-beat="1">220 wins · 0 losses · p = 1.2e-66</div>
+</div></div>
+
+<div class="scene" data-scene="trace"><div class="pad">
+  <h2 class="beat" data-beat="0">Every stage records what it saw.</h2>
+  <div class="rungs">
+    <div class="rung beat" data-beat="1" data-w="100"><span class="rn">predicates</span><span><i class="rb"></i></span><span class="rv">9,627</span></div>
+    <div class="rung beat" data-beat="1" data-w="22"><span class="rn">lexical</span><span><i class="rb"></i></span><span class="rv">100</span></div>
+    <div class="rung beat" data-beat="1" data-w="22"><span class="rn">dense</span><span><i class="rb"></i></span><span class="rv">100</span></div>
+    <div class="rung beat" data-beat="1" data-w="14"><span class="rn">fusion</span><span><i class="rb"></i></span><span class="rv">62</span></div>
+    <div class="rung lit beat" data-beat="1" data-w="4"><span class="rn">evidence</span><span><i class="rb"></i></span><span class="rv">16</span></div>
+  </div>
+  <div class="lead beat" data-beat="1" style="margin-top:34px;color:var(--paper)">
+    Not <em>why did the model hallucinate</em> — <span class="accent">which stage lost the evidence</span>.</div>
+</div></div>
+
+<div class="scene" data-scene="off"><div class="pad">
+  <h2 class="beat" data-beat="0">Five components ship <span class="warn">switched off</span>.</h2>
+  <div class="offs">
+    <div class="off beat" data-beat="1"><span class="on">cross-encoder reranker</span><span class="pv">+0.5 · p = 0.79</span></div>
+    <div class="off beat" data-beat="1"><span class="on">entailment verifier</span><span class="pv">+2.3 · p = 0.55</span></div>
+    <div class="off beat" data-beat="1"><span class="on">calibrated confidence</span><span class="pv">AURC +0.0019</span></div>
+    <div class="off beat" data-beat="1"><span class="on">multi-hop retrieval</span><span class="pv">−0.88 · p = 0.25</span></div>
+    <div class="off beat" data-beat="1"><span class="on">fine-tuned encoder</span><span class="pv">8 of 383 moved</span></div>
+  </div>
+  <div class="lead beat" data-beat="2" style="margin-top:30px;color:var(--paper)">
+    Built, measured, and disabled — with the number that decided it beside the switch.</div>
+</div></div>
+
+<div class="scene" data-scene="close"><div class="pad">
+  <h2 class="beat" data-beat="0" style="max-width:26ch">Measuring something and shipping it anyway is not engineering.</h2>
+  <div class="mark beat" data-beat="1" style="margin-top:40px">warrant</div>
+  <div class="kicker2 beat" data-beat="1">The code, and every measurement — including the ones that came out negative.</div>
+  <div class="url beat" data-beat="1">github.com/tasnimuldatascience/warrant</div>
+</div></div>
+
+<script>
+const TIMELINE = /*__TIMELINE__*/;
+const t0 = performance.now();
+const at = (sec, fn) => setTimeout(fn, Math.max(0, sec * 1000 - (performance.now() - t0)));
+
+for (const s of TIMELINE.scenes) {
+  const el = document.querySelector(`[data-scene="${s.name}"]`);
+  if (!el) continue;
+  at(s.start - 0.45, () => {
+    document.querySelectorAll('.scene.live').forEach(x => x.classList.remove('live'));
+    el.classList.add('live');
+  });
+  // Each line in a scene lights its own beat, so text arrives with the sentence that
+  // describes it rather than all at once at the top of the scene.
+  s.lines.forEach((ln, i) => {
+    at(ln.start - 0.18, () => {
+      el.querySelectorAll(`[data-beat="${i}"]`).forEach(b => {
+        b.classList.add('on');
+        if (b.classList.contains('rung')) {
+          const bar = b.querySelector('.rb');
+          if (bar) setTimeout(() => { bar.style.width = b.dataset.w + '%'; }, 90);
+        }
+      });
+      if (s.name === 'change' && i === 1) {
+        setTimeout(() => document.getElementById('strike').classList.add('struck'), 120);
+      }
+    });
+  });
+}
+
+// --- chapter rail -------------------------------------------------------------
+const rail = document.getElementById('rail');
+const chapter = document.getElementById('chapter');
+const TITLES = {hook:'the problem', change:'an amendment', problem:'the problem',
+                what:'what it is', split:'two answers', gate:'the mechanism',
+                trace:'the trace', off:'what ships off', close:'warrant'};
+const span = (s) => Math.max(0.6, s.end - s.start);
+const segs = TIMELINE.scenes.map(s => {
+  const d = document.createElement('div');
+  d.className = 'seg';
+  d.style.flexGrow = span(s);
+  d.innerHTML = '<i></i>';
+  rail.appendChild(d);
+  return d;
+});
+at(0.9, () => { rail.classList.add('on'); document.getElementById('wm').classList.add('on'); });
+TIMELINE.scenes.forEach((s, i) => {
+  at(s.start - 0.45, () => {
+    segs.forEach((d, j) => {
+      d.classList.toggle('now', j === i);
+      if (j < i) { d.firstChild.style.transition = 'none'; d.firstChild.style.width = '100%'; }
+    });
+    const fill = segs[i].firstChild;
+    fill.style.transition = `width ${span(s) + 0.9}s linear`;
+    requestAnimationFrame(() => { fill.style.width = '100%'; });
+    chapter.classList.remove('on');
+    setTimeout(() => { chapter.textContent = TITLES[s.name] || s.name;
+                       chapter.classList.add('on'); }, 260);
+  });
+});
+// The close owns the frame; the rail would compete with the URL.
+at(TIMELINE.scenes[TIMELINE.scenes.length - 1].start - 0.45, () => {
+  rail.classList.remove('on');
+  chapter.classList.remove('on');
+  document.getElementById('wm').classList.remove('on');
+});
+</script>
+</body>
+</html>

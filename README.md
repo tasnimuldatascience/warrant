@@ -391,8 +391,9 @@ Not legal advice. Not a general web-scale RAG. Every architecture section is mar
 *The two shaded boxes are the two claims: the predicate gate, because pushing as-of and
 scope into the query rather than filtering after it is what makes an answer version-correct;
 and the trace, because it is what turns a wrong answer into an addressable one. Animated as
-[`warrant-architecture.gif`](media/warrant-architecture.gif); the interface walkthrough is
-[`warrant-demo.mp4`](media/warrant-demo.mp4).*
+[`warrant-architecture.gif`](media/warrant-architecture.gif). There is a narrated
+105-second explainer in [`warrant-film.mp4`](media/warrant-film.mp4), and an interface
+walkthrough in [`warrant-demo.mp4`](media/warrant-demo.mp4).*
 
 
 
