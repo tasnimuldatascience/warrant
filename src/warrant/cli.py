@@ -588,6 +588,7 @@ def eval_gate(config: ConfigOpt = None,
         console.print(f"recorded {len(floor.buckets)} bucket floors to [bold]{path}[/bold] "
                       f"at config {cfg.hash}, horizon {horizon}, models "
                       f"{floor.models or 'lexical only'}")
+        console.print(f"  items: {floor.items}")
         for b in floor.buckets:
             lo = "n/a" if b.sufficiency_floor is None else f"{b.sufficiency_floor * 100:.1f}%"
             console.print(f"  {b.bucket:<18} n={b.n:<4} sufficiency floor {lo}")

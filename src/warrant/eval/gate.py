@@ -69,6 +69,11 @@ class Floor:
     split: str
     recorded_at: str
     buckets: list[BucketFloor] = field(default_factory=list)
+    #: Items per bucket in the run that recorded this floor. A third thing the config hash
+    #: cannot see: `benchmarks/human.yaml` is not in the config, so growing it from 29 to 212
+    #: items left the hash identical and the floor describing a different, easier set. A
+    #: sufficiency floor is only meaningful over the items it was measured on.
+    items: dict[str, int] = field(default_factory=dict)
     #: What actually ran, from ``Retriever.model_names()`` -- absent components get no key
     #: at all, so a lexical-only run is ``{}`` and is visibly not a reranked one. Recorded
     #: because the config hash cannot distinguish them: the same file with torch missing
@@ -84,6 +89,7 @@ class Floor:
         return cls(config_hash=data["config_hash"], split=data["split"],
                    recorded_at=data["recorded_at"],
                    buckets=[BucketFloor(**b) for b in data["buckets"]],
+                   items=data.get("items", {}),
                    # Default for floors recorded before models were tracked. They stay
                    # loadable, and they compare only against another modelless run.
                    models=data.get("models", {}))
@@ -136,7 +142,8 @@ def record(results: dict[str, Any], *, config_hash: str, split: str,
             distractors_reachable=reachable,
         ))
     return Floor(config_hash=config_hash, split=split, recorded_at=recorded_at,
-                 buckets=floors, models=dict(models or {}))
+                 buckets=floors, models=dict(models or {}),
+                 items={name: b.n for name, b in sorted(results.items())})
 
 
 def check(floor: Floor, results: dict[str, Any], *, config_hash: str,
@@ -165,6 +172,21 @@ def check(floor: Floor, results: dict[str, Any], *, config_hash: str,
                     + (f" -- {', '.join(missing)} did not load" if missing else "")
                     + ". The config hash cannot see this: the same config file with torch "
                     "unavailable hashes identically and is a different system."))
+
+    # Only over buckets present in both. A bucket that vanished is a different failure with
+    # a different answer -- it must fail the gate, not be excused as "the benchmark changed"
+    # -- and folding the two together let a disappearing bucket exit as merely incomparable.
+    counts = {name: b.n for name, b in sorted(results.items())}
+    shared = set(counts) & set(floor.items)
+    moved = {k: (floor.items[k], counts[k]) for k in sorted(shared)
+             if floor.items[k] != counts[k]}
+    if moved:
+        return GateResult(
+            ok=True, comparable=False,
+            detail=(f"the benchmark changed: {moved}. A sufficiency floor is only meaningful "
+                    "over the items it was measured on, and the config hash cannot see this "
+                    "-- benchmarks/human.yaml is not in the config, so growing it left the "
+                    "hash identical and the floor describing an easier set."))
 
     violations: list[Violation] = []
     improvements: list[str] = []

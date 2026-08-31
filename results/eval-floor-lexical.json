@@ -4,8 +4,8 @@
       "bucket": "human",
       "distractor_ceiling": null,
       "distractors_reachable": 0,
-      "n": 29,
-      "sufficiency_floor": 0.3870967741935484
+      "n": 108,
+      "sufficiency_floor": 0.543859649122807
     },
     {
       "bucket": "scope",
@@ -30,7 +30,13 @@
     }
   ],
   "config_hash": "dbac692062d7",
+  "items": {
+    "human": 108,
+    "scope": 42,
+    "scope-exclusion": 42,
+    "temporal": 233
+  },
   "models": {},
-  "recorded_at": "2026-08-30T22:00:20+00:00",
+  "recorded_at": "2026-08-31T02:27:43+00:00",
   "split": "test"
 }

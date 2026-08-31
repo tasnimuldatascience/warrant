@@ -4,8 +4,8 @@
       "bucket": "human",
       "distractor_ceiling": null,
       "distractors_reachable": 0,
-      "n": 29,
-      "sufficiency_floor": 0.7241379310344828
+      "n": 108,
+      "sufficiency_floor": 0.7052631578947368
     },
     {
       "bucket": "scope",
@@ -30,10 +30,16 @@
     }
   ],
   "config_hash": "dbac692062d7",
+  "items": {
+    "human": 108,
+    "scope": 42,
+    "scope-exclusion": 42,
+    "temporal": 233
+  },
   "models": {
     "dense": "BAAI/bge-small-en-v1.5",
     "rerank": "cross-encoder/ms-marco-MiniLM-L-6-v2"
   },
-  "recorded_at": "2026-08-30T22:00:08+00:00",
+  "recorded_at": "2026-08-31T02:27:14+00:00",
   "split": "test"
 }

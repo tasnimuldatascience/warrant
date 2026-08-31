@@ -6,8 +6,8 @@
 
 [![license](https://img.shields.io/badge/license-MIT-22863a)](LICENSE)
 [![python](https://img.shields.io/badge/python-3.12%20|%203.13-3776ab?logo=python&logoColor=white)](pyproject.toml)
-[![tests](https://img.shields.io/badge/tests-671%20passing-22863a)](tests/)
-[![corpus](https://img.shields.io/badge/corpus-13,145%20chunk%20versions%20|%2026%20CFR%20parts-5b8cff)](results/eval-004-held-out.md)
+[![tests](https://img.shields.io/badge/tests-700%2B%20passing-22863a)](tests/)
+[![corpus](https://img.shields.io/badge/corpus-13,212%20chunk%20versions%20|%2026%20CFR%20parts-5b8cff)](results/eval-004-held-out.md)
 
 </div>
 
@@ -145,6 +145,31 @@ The aggregate is also not the number that should govern the decision. On the 29 
 that motivated the whole exercise the policy answers 17.2% and is still wrong on one of those;
 74% is carried by the temporal and scope buckets, which are 91% of the split and far easier.
 [results/eval-005](results/eval-005-abstention.md) reports all of it.
+
+## The benchmark that carries the real questions
+
+Three of the four buckets are auto-mined from amendment diffs, which measures retrieval
+mechanics. The **human** bucket is hand-written, and it is the one that measures usefulness —
+so for most of this project's life it was 29 items, and almost every conclusion that depended
+on it came back *"the sample cannot tell."*
+
+It is now **212 items across all 26 parts**, including 40 scope-dependent, ~55 carrying an
+exception clause, 13 dated pairs straddling an amendment, and 6 that the corpus genuinely
+cannot answer — so abstention has something to be right about.
+
+| | before | after |
+|---|---|---|
+| items | 29 | **212** |
+| parts covered | 14 | **26** |
+| human sufficiency, test split | 79.3% (61.8–96.2) | **79.6% (70.5–87.6)** |
+
+The central estimate barely moved and **the interval more than halved**, which is the whole
+point: the old number was not wrong, it was unfalsifiable.
+
+The finding underneath is that the new items are harder. Aggregate insufficiency across all
+buckets nearly doubled, 4.33% → 8.09%, and the human bucket's share of every insufficient
+answer in the system rose from 54% to 71%. A benchmark that gets easier as it grows is
+measuring its author. [results/eval-020](results/eval-020-human-benchmark.md).
 
 ## Latency against quality
 

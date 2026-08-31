@@ -156,3 +156,23 @@ def test_a_floor_recorded_before_models_were_tracked_still_loads(tmp_path):
     path.write_text('{"config_hash": "cfg1", "split": "test", "recorded_at": "x",'
                     ' "buckets": []}', encoding="utf-8")
     assert Floor.load(path).models == {}
+
+
+def test_a_grown_benchmark_is_incomparable():
+    """The third thing the config hash cannot see. benchmarks/human.yaml is not in the
+    config, so growing it from 29 items to 212 left the hash identical while the floor went
+    on describing a smaller, easier set. A sufficiency floor means nothing apart from the
+    items it was measured over."""
+    floor = record({"human": bucket("human", sufficiency=0.79, lo=0.60)},
+                   config_hash="cfg1", split="test", recorded_at=RECORDED)
+    grown = bucket("human", sufficiency=0.79, lo=0.60)
+    grown.n = 212
+    result = check(floor, {"human": grown}, config_hash="cfg1")
+    assert not result.comparable
+    assert "benchmark changed" in result.detail
+
+
+def test_an_unchanged_benchmark_still_compares():
+    floor = record({"human": bucket("human")}, config_hash="cfg1", split="test",
+                   recorded_at=RECORDED)
+    assert check(floor, {"human": bucket("human")}, config_hash="cfg1").comparable
