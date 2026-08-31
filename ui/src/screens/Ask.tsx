@@ -623,19 +623,24 @@ function Result({
       <Claims state={state} />
 
       {/* -- follow-up --------------------------------------------------------------------
-          Only once this exchange has a trace to pin to. Not a chat window: every turn below
-          answers from exactly the evidence ledger above, and the pinned as-of is restated on
-          each one rather than trusted to memory. */}
-      {state.done?.trace_id && state.evidence.length ? (
-        <Followups state={state} parentAsOf={state.params?.as_of ?? asOf} />
-      ) : null}
+          Always rendered, disabled until there is a trace to pin to. It used to appear only
+          after a completed generation, which meant a visitor landing on the page saw a search
+          box and no conversation anywhere -- and concluded there wasn't one. An affordance
+          that exists only once you have already succeeded is an affordance nobody finds.
+
+          Not a chat window: every turn answers from exactly the evidence ledger above, and
+          the pinned as-of is restated on each one rather than trusted to memory. */}
+      <Followups state={state} parentAsOf={state.params?.as_of ?? asOf}
+                 ready={Boolean(state.done?.trace_id) && state.evidence.length > 0} />
     </>
   );
 }
 
 // -- follow-up ------------------------------------------------------------------------------
 
-function Followups({ state, parentAsOf }: { state: AskState; parentAsOf: string }) {
+function Followups({ state, parentAsOf, ready }: {
+  state: AskState; parentAsOf: string; ready: boolean;
+}) {
   const { askFollowup, widen } = useAsk();
   const [q, setQ] = useState("");
   const asking = state.followups.some((f) => f.status === "asking" || f.status === "widening");
@@ -643,7 +648,7 @@ function Followups({ state, parentAsOf }: { state: AskState; parentAsOf: string 
   function submit(e?: React.FormEvent) {
     e?.preventDefault();
     const text = q.trim();
-    if (!text || asking) return;
+    if (!text || asking || !ready) return;
     askFollowup(text);
     setQ("");
   }
@@ -652,10 +657,21 @@ function Followups({ state, parentAsOf }: { state: AskState; parentAsOf: string 
     <>
       <SectionLabel n="04">follow-up</SectionLabel>
       <p className="hint" style={{ maxWidth: "44rem" }}>
-        Answered from the evidence ledger above, pinned as of{" "}
-        <strong className="mono">{parentAsOf}</strong> — no new retrieval happens by default.
-        A different date or scope is a new question, not a follow-up: change the form above
-        and ask again rather than have a turn quietly answer from somewhere else.
+        {ready ? (
+          <>
+            Answered from the evidence ledger above, pinned as of{" "}
+            <strong className="mono">{parentAsOf}</strong> — no new retrieval happens by
+            default. A different date or scope is a new question, not a follow-up: change the
+            form above and ask again rather than have a turn quietly answer from somewhere
+            else.
+          </>
+        ) : (
+          <>
+            Ask something above first. Follow-ups answer from that exchange's evidence, at
+            that exchange's date — which is why they cannot exist before there is one to pin
+            to, and why changing the date is a new question rather than another turn.
+          </>
+        )}
       </p>
 
       {state.followups.length ? (
@@ -681,7 +697,7 @@ function Followups({ state, parentAsOf }: { state: AskState; parentAsOf: string 
               value={q}
               maxLength={512}
               spellCheck
-              disabled={asking}
+              disabled={asking || !ready}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) submit();
@@ -693,7 +709,7 @@ function Followups({ state, parentAsOf }: { state: AskState; parentAsOf: string 
         <button
           className="btn followup-form__go"
           type="submit"
-          disabled={!q.trim() || asking}
+          disabled={!q.trim() || asking || !ready}
         >
           {asking ? "asking…" : "ask"}
         </button>

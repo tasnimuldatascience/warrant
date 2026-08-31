@@ -1,12 +1,60 @@
 {
   "artboards": [
-    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 1000, "title": "Ask" },
-    { "file": "Timeline.dc.html", "x": 1560, "y": 0, "w": 1440, "h": 1000 },
-    { "file": "Trace.dc.html", "x": 3120, "y": 0, "w": 1440, "h": 1000 }
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1000,
+      "title": "Ask"
+    },
+    {
+      "file": "Conversation.dc.html",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 1120,
+      "title": "Conversation"
+    },
+    {
+      "file": "Timeline.dc.html",
+      "x": 3120,
+      "y": 0,
+      "w": 1440,
+      "h": 1000
+    },
+    {
+      "file": "Trace.dc.html",
+      "x": 4680,
+      "y": 0,
+      "w": 1440,
+      "h": 1000
+    }
   ],
   "annotations": [
-    { "id": "thesis", "x": 0, "y": -150, "w": 520, "text": "The hero is the thesis: one question, two dates, two correct answers. Evidence lands at 18ms; the prose hatches while the model works. That asymmetry is the reason the streaming endpoint exists." },
-    { "id": "stamp", "x": 1560, "y": -150, "w": 460, "text": "SUPERSEDED is the signature element. Half this corpus is law that no longer applies, and a reader has to see that at a glance rather than by reading a date." }
+    {
+      "id": "thesis",
+      "x": 0,
+      "y": -150,
+      "w": 520,
+      "text": "The hero is the thesis: one question, two dates, two correct answers. Evidence lands at 18ms; the prose hatches while the model works."
+    },
+    {
+      "id": "chat",
+      "x": 1560,
+      "y": -150,
+      "w": 520,
+      "text": "The chat, done for this domain. The as-of is pinned to the exchange and sits on the input, not in the model's memory - the endpoint has no date parameter at all. A turn that needs evidence the set does not hold offers to widen rather than fetching silently, and a new date is a new question."
+    },
+    {
+      "id": "stamp",
+      "x": 3120,
+      "y": -150,
+      "w": 460,
+      "text": "SUPERSEDED is the signature element. Half this corpus is law that no longer applies, and a reader has to see that at a glance rather than by reading a date."
+    }
   ],
-  "launch": { "view": "canvas" }
+  "launch": {
+    "view": "canvas"
+  }
 }

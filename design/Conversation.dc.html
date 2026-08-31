@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200;0,6..72,300;0,6..72,400;0,6..72,600;1,6..72,300;1,6..72,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    body { margin: 0; background: #eceeef; }
+    a { color: #1a4f7a; } a:hover { color: #123a5c; }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 1120px; background: #eceeef; color: #12161a; font-family: Newsreader, Georgia, serif; padding: 0 0 72px;">
+
+  <div style="display: flex; align-items: baseline; justify-content: space-between; padding: 26px 64px 14px; border-bottom: 2px solid #12161a;">
+    <div style="display: flex; align-items: baseline; gap: 18px;">
+      <span style="font-size: 27px; font-weight: 600; letter-spacing: 0.06em;">WARRANT</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.14em; color: #5a656d; text-transform: uppercase;">5 CFR &middot; point-in-time</span>
+    </div>
+    <div style="display: flex; gap: 30px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5a656d;">
+      <span style="color: #12161a; border-bottom: 2px solid #9b2c22; padding-bottom: 3px;">Ask</span>
+      <span>Timeline</span><span>Diff</span><span>Trace</span>
+    </div>
+  </div>
+  <div style="height: 4px; border-bottom: 1px solid #12161a; margin: 0 64px;"></div>
+
+  <!-- the pinned exchange, always visible -->
+  <div style="margin: 40px 64px 0; display: grid; grid-template-columns: 1fr 330px; gap: 48px;">
+    <div>
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.18em; text-transform: uppercase; color: #9b2c22; margin-bottom: 16px;">The exchange &middot; pinned</div>
+      <h1 style="font-size: 40px; line-height: 1.14; font-weight: 300; margin: 0 0 18px; max-width: 24ch; letter-spacing: -0.015em;">By when must restored annual leave be scheduled?</h1>
+      <div style="display: flex; gap: 26px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-variant-numeric: tabular-nums; color: #3d474e; border-top: 1px solid #a7b1b7; border-bottom: 1px solid #a7b1b7; padding: 11px 0;">
+        <span><span style="color: #5a656d;">as of</span> 2021&#8209;06&#8209;01</span>
+        <span><span style="color: #5a656d;">scope</span> government&#8209;wide</span>
+        <span><span style="color: #5a656d;">evidence</span> 16 chunks</span>
+        <span style="color: #1a4f7a;">trace 89acf562</span>
+      </div>
+    </div>
+    <div style="border-left: 1px solid #a7b1b7; padding-left: 28px;">
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: #5a656d; margin-bottom: 12px;">Why this is pinned</div>
+      <p style="margin: 0; font-size: 14.5px; line-height: 1.55; font-weight: 300; color: #3d474e;">Every turn below answers from <em style="font-style: italic;">this</em> evidence, at <em style="font-style: italic;">this</em> date. Changing either is a new question, not another turn &mdash; a conversation that quietly re-dates itself is how you get two answers from two different regulations without being told.</p>
+    </div>
+  </div>
+
+  <!-- turns -->
+  <div style="margin: 44px 64px 0;">
+    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; border-bottom: 1px solid #12161a; padding-bottom: 9px; margin-bottom: 0;">Turns</div>
+
+    <!-- turn 1: answered -->
+    <div style="display: grid; grid-template-columns: 118px 1fr; gap: 32px; padding: 26px 0 24px; border-bottom: 1px solid #cfd5d8;">
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-variant-numeric: tabular-nums; color: #5a656d; line-height: 1.6;">01<br><span style="color: #23684a;">answered</span><br><span style="color: #a7b1b7;">2021&#8209;06&#8209;01</span></div>
+      <div style="border-left: 2px solid #12161a; padding-left: 26px;">
+        <p style="margin: 0 0 16px; font-size: 21px; font-weight: 300; font-style: italic; color: #12161a;">What's the exception in paragraph (b)?</p>
+        <p style="margin: 0 0 12px; font-size: 17px; line-height: 1.52; font-weight: 300;">The period may be extended once, for a period not to exceed two years, where the annual leave was restored because of an exigency of the public business.</p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;">
+          <span style="border: 1px solid #a7b1b7; padding: 4px 9px; color: #1a4f7a;">630.306#b</span>
+          <span style="color: #5a656d; padding: 4px 0;">from the pinned evidence &middot; no new retrieval</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- turn 2: insufficient, offers to widen -->
+    <div style="display: grid; grid-template-columns: 118px 1fr; gap: 32px; padding: 26px 0 24px; border-bottom: 1px solid #cfd5d8;">
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-variant-numeric: tabular-nums; color: #5a656d; line-height: 1.6;">02<br><span style="color: #8a5b09;">insufficient</span><br><span style="color: #a7b1b7;">2021&#8209;06&#8209;01</span></div>
+      <div style="border-left: 2px solid #8a5b09; padding-left: 26px;">
+        <p style="margin: 0 0 16px; font-size: 21px; font-weight: 300; font-style: italic; color: #12161a;">And what does &sect;630.309 say about that?</p>
+        <p style="margin: 0 0 16px; font-size: 17px; line-height: 1.52; font-weight: 300; color: #3d474e;">The pinned evidence references &sect;630.309 and does not contain it. Rather than answer from something you were not shown, or quietly go and fetch it:</p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; border: 1px solid #12161a; background: #12161a; color: #f9fafa; padding: 7px 13px;">+ add 630.309#b &mdash; as in force 2021&#8209;06&#8209;01</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; border: 1px solid #a7b1b7; padding: 7px 13px; color: #3d474e;">+ add 630.310#a</span>
+        </div>
+        <p style="margin: 14px 0 0; font-size: 13.5px; line-height: 1.5; color: #5a656d; font-weight: 300;">77.3% of evidence sets reference something they don't hold. Offering it beats fetching it: what a turn was answered from should never change without you saying so.</p>
+      </div>
+    </div>
+
+    <!-- turn 3: date change refused -->
+    <div style="display: grid; grid-template-columns: 118px 1fr; gap: 32px; padding: 26px 0 24px; border-bottom: 2px solid #12161a;">
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; font-variant-numeric: tabular-nums; color: #5a656d; line-height: 1.6;">03<br><span style="color: #9b2c22;">new question</span><br><span style="color: #a7b1b7;">&mdash;</span></div>
+      <div style="border-left: 2px solid #9b2c22; padding-left: 26px;">
+        <p style="margin: 0 0 16px; font-size: 21px; font-weight: 300; font-style: italic; color: #12161a;">What about in 2019?</p>
+        <p style="margin: 0 0 14px; font-size: 17px; line-height: 1.52; font-weight: 300; color: #3d474e;">That is a different date, so it is a different question &mdash; &sect;630.306 was amended on 2020&#8209;08&#8209;10 and the answer genuinely differs either side of it.</p>
+        <span style="display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 11px; border: 1px solid #12161a; padding: 7px 13px; color: #12161a;">Ask it as of 2019&#8209;06&#8209;01 &rarr;</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- the input, always present -->
+  <div style="margin: 34px 64px 0;">
+    <div style="display: flex; align-items: stretch; border: 1px solid #12161a; background: #f9fafa;">
+      <input type="text" value="Does the extension apply to a break in service?" style="flex-grow: 1; border: 0; background: transparent; padding: 17px 20px; font-family: Newsreader, Georgia, serif; font-size: 19px; font-weight: 300; color: #12161a; outline: none;">
+      <div style="display: flex; align-items: center; gap: 9px; padding: 0 18px; border-left: 1px solid #cfd5d8; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5a656d;">
+        <span style="font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;">pinned</span>
+        <span style="font-variant-numeric: tabular-nums; color: #12161a;">2021&#8209;06&#8209;01</span>
+      </div>
+      <div style="display: flex; align-items: center; padding: 0 24px; background: #12161a; color: #f9fafa; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;">Follow up</div>
+    </div>
+    <p style="margin: 12px 0 0; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #5a656d; letter-spacing: 0.03em;">The date sits on the input, not in the model's memory. There is no parameter here that could carry a different one.</p>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
