@@ -349,6 +349,19 @@ refused in 0.02 ms; an unbalanced quote was a 500 and is now a 3 ms answer; a Cy
 homoglyph matched nothing and now matches 100 chunks. Total overhead is under 70 µs against
 an 18.4 ms retrieval.
 
+## What it deliberately does not do
+
+No chat interface, no memory, no model routing, no agents. Each of those is a decision with a
+measurement behind it, not an omission — a conversation that carries state across an as-of
+change reintroduces the wrong-version failure the whole system exists to prevent, and the one
+multi-step behaviour that *is* here is a deterministic graph walk because the edges are
+written in the text by the drafter and traversing them needs no inference.
+
+Governance is half covered, and [docs/DECISIONS.md](docs/DECISIONS.md) says which half:
+provenance, authority tiers, bitemporal audit and evidence-id citation are first-class;
+access control, retention, PII policy and a model card are absent, and that one is a gap
+rather than a choice.
+
 ## What this is not
 
 **It is not access control.** eCFR is published law. Nothing here is confidential, nothing can
