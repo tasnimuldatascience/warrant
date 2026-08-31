@@ -72,6 +72,68 @@
          line-height:1.4}
   .wl{font-family:var(--mono);font-size:20px;color:var(--dim);margin-top:16px;letter-spacing:.06em}
 
+  /* worked example -- two dates, two answers */
+  .ex{display:grid;grid-template-columns:1fr 1fr;gap:56px;margin-top:38px}
+  .exq{font-size:38px;font-weight:300;line-height:1.34;max-width:34ch;
+       border-left:3px solid var(--accent);padding-left:26px}
+  .exc{border-top:2px solid var(--dim);padding-top:18px}
+  .exc .d{font-family:var(--mono);font-size:20px;color:var(--accent);letter-spacing:.04em}
+  .exc .a{font-size:27px;font-weight:300;line-height:1.42;margin-top:18px;color:var(--paper)}
+  .exc .a s{color:var(--stamp);text-decoration-thickness:2px}
+  .exc .m{font-family:var(--mono);font-size:15px;color:var(--dim);margin-top:16px;
+          letter-spacing:.03em;line-height:1.6}
+  .exc.now .d{color:var(--ok)}
+
+  /* lifecycle graph -- nodes, rules and arrows */
+  .graph{margin-top:40px;position:relative}
+  .grow{display:grid;align-items:stretch;gap:0}
+  .node{border-top:2px solid var(--accentd);padding:16px 20px 18px 0;position:relative}
+  .node b{display:block;font-family:var(--mono);font-size:13px;letter-spacing:.15em;
+          text-transform:uppercase;color:var(--accent);margin-bottom:11px;font-weight:500}
+  .node span{font-size:18px;font-weight:300;line-height:1.5;color:var(--muted);display:block}
+  .node em{font-style:normal;color:var(--paper);font-family:var(--mono);font-size:16px}
+  .node.shed b{color:var(--stamp)}
+  .node.shed{border-top-color:var(--stampd)}
+  .node.term{border-top-color:var(--ok)}
+  .node.term b{color:var(--ok)}
+  .node:after{content:"";position:absolute;right:9px;top:-2px;width:0;height:0;
+              border:6px solid transparent;border-left-color:var(--dim);
+              border-right:0;transform:translateY(-4px)}
+  .node.last:after{display:none}
+  .carry{font-family:var(--mono);font-size:15px;color:var(--dim);margin-top:12px;
+         letter-spacing:.04em}
+  .carry i{font-style:normal;color:var(--accent)}
+  .glabel{font-family:var(--mono);font-size:13px;letter-spacing:.2em;text-transform:uppercase;
+          color:var(--dim);margin:30px 0 4px}
+
+  /* evals */
+  .bk{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-top:40px}
+  .bkc{border-top:2px solid var(--dim);padding-top:16px}
+  .bkc b{display:block;font-family:var(--mono);font-size:14px;letter-spacing:.14em;
+         text-transform:uppercase;color:var(--muted);margin-bottom:10px;font-weight:500}
+  .bkc.hand{border-top-color:var(--accent)}
+  .bkc.hand b{color:var(--accent)}
+  .bkc span{font-size:18px;font-weight:300;line-height:1.5;color:var(--muted);display:block}
+  .ivs{display:grid;grid-template-columns:150px 1fr;gap:26px;align-items:center;margin-top:34px}
+  .ivl{font-family:var(--mono);font-size:17px;color:var(--muted);text-align:right}
+  .ivt{position:relative;height:30px}
+  .ivb{position:absolute;top:12px;height:6px;background:var(--stampd);
+       transition:all .8s cubic-bezier(.22,.7,.25,1)}
+  .ivb.tight{background:var(--accent)}
+  .ivp{position:absolute;top:-7px;width:2px;height:20px;background:var(--paper)}
+
+  /* observability */
+  .ids{display:grid;grid-template-columns:1fr 1fr;gap:52px;margin-top:36px}
+  .idc{border-top:2px solid var(--dim);padding-top:18px}
+  .idc b{display:block;font-family:var(--mono);font-size:19px;color:var(--accent);
+         margin-bottom:12px;letter-spacing:.03em}
+  .idc span{font-size:22px;font-weight:300;line-height:1.44;color:var(--muted)}
+  .gate{font-family:var(--mono);font-size:20px;color:var(--dim);margin-top:32px;
+        letter-spacing:.03em;line-height:1.7;border-left:3px solid var(--stampd);
+        padding-left:22px}
+  .gate i{font-style:normal;color:var(--stamp)}
+  .gate u{text-decoration:none;color:var(--paper)}
+
   /* ladder */
   .rungs{margin-top:40px;display:flex;flex-direction:column;gap:0}
   .rung{display:grid;grid-template-columns:210px 1fr 130px;gap:24px;align-items:center;
@@ -115,10 +177,18 @@
       letter-spacing:.22em;text-transform:uppercase;color:var(--dim);
       opacity:0;transition:opacity .6s ease}
   .wm.on{opacity:1}
+
+  /* Sync marker. The recorder starts capturing when Chromium first paints, which is
+     after the webfonts land -- so the webm's frame 0 is not the timeline's t=0. The
+     timeline flashes this for a few frames at its true zero and the builder trims the
+     recording to it, which makes the alignment measured rather than assumed. */
+  #sync{position:absolute;inset:0;background:#fff;opacity:0;z-index:99;pointer-events:none}
+  #sync.flash{opacity:1}
 </style>
 </head>
 <body>
 
+<div id="sync"></div>
 <div class="chapter" id="chapter"></div>
 <div class="rail" id="rail"></div>
 <div class="wm" id="wm">warrant</div>
@@ -154,6 +224,22 @@
   </div>
 </div></div>
 
+<div class="scene" data-scene="example"><div class="pad">
+  <div class="exq beat" data-beat="1">How long may a recruitment incentive<br>service agreement run?</div>
+  <div class="ex">
+    <div class="exc beat" data-beat="2">
+      <div class="d">as of 2024-06-01</div>
+      <div class="a">The service period may not <s>be less than 6 months and may not</s> exceed 4 years.</div>
+      <div class="m">575.110(a)<br>in force 2017-01-01 &rarr; 2026-02-13</div>
+    </div>
+    <div class="exc now beat" data-beat="3">
+      <div class="d">as of today</div>
+      <div class="a">The service period may not exceed 4 years.</div>
+      <div class="m">575.110(a)<br>in force 2026-02-13 &rarr; now</div>
+    </div>
+  </div>
+</div></div>
+
 <div class="scene" data-scene="split"><div class="pad">
   <div class="lanes">
     <div class="lane old beat" data-beat="0">
@@ -178,6 +264,36 @@
   <div class="wl beat" data-beat="1">220 wins · 0 losses · p = 1.2e-66</div>
 </div></div>
 
+<div class="scene" data-scene="build"><div class="pad">
+  <div class="eyebrow beat" data-beat="0">build time &mdash; once per snapshot</div>
+  <h2 class="beat" data-beat="0" style="font-size:52px">The gate is only as good as what feeds it.</h2>
+  <div class="graph">
+    <div class="grow" style="grid-template-columns:1.15fr 1fr 1fr 1.05fr">
+      <div class="node beat" data-beat="1"><b>five sources</b><span>5 U.S.C. &middot; eCFR<br>Fed. Register &middot; OPM<br>govinfo &middot; OCR</span></div>
+      <div class="node beat" data-beat="2"><b>parse &middot; strip</b><span>headings, notes and<br>editorial apparatus<br>removed</span></div>
+      <div class="node beat" data-beat="2"><b>structural diff</b><span>against the previous<br>snapshot &mdash; by tree,<br>not by text</span></div>
+      <div class="node term last beat" data-beat="3"><b>bitemporal store</b><span><em>valid_from &rarr; valid_to</em><br><em>system_from &rarr; system_to</em><br>SQLite &middot; FTS5 &middot; vectors</span></div>
+    </div>
+    <div class="carry beat" data-beat="3">every paragraph carries <i>two clocks</i> &mdash; when it was law, and when we knew it</div>
+  </div>
+</div></div>
+
+<div class="scene" data-scene="path"><div class="pad">
+  <div class="eyebrow beat" data-beat="0">query time &mdash; every request, the same walk</div>
+  <h2 class="beat" data-beat="0" style="font-size:52px">A question walks the same path every time.</h2>
+  <div class="graph">
+    <div class="grow" style="grid-template-columns:.92fr .95fr 1.15fr .85fr .82fr 1.1fr">
+      <div class="node beat" data-beat="1"><b>question</b><span>text<br>+ as-of date<br>+ scope</span></div>
+      <div class="node beat" data-beat="1"><b>predicates</b><span>pushed into SQL,<br>not filtered after<br><em>9,627 admitted</em></span></div>
+      <div class="node beat" data-beat="2"><b>retrieve &times;2</b><span><em>BM25 14.1 ms</em><br><em>dense 15.1 ms</em><br>concurrent</span></div>
+      <div class="node beat" data-beat="2"><b>RRF fusion</b><span>ranks, not scores<br><em>62 &rarr; 16</em></span></div>
+      <div class="node shed beat" data-beat="2"><b>rerank</b><span>switched off<br><em>+0.5, p = 0.79</em></span></div>
+      <div class="node term last beat" data-beat="3"><b>generate &middot; align</b><span>claims + evidence ids<br>spans computed, never<br>written &middot; <em>6.6 s</em></span></div>
+    </div>
+    <div class="carry beat" data-beat="3">and the whole run is written down under one <i>trace id</i> &mdash; replayable, stage by stage</div>
+  </div>
+</div></div>
+
 <div class="scene" data-scene="trace"><div class="pad">
   <h2 class="beat" data-beat="0">Every stage records what it saw.</h2>
   <div class="rungs">
@@ -189,6 +305,40 @@
   </div>
   <div class="lead beat" data-beat="1" style="margin-top:34px;color:var(--paper)">
     Not <em>why did the model hallucinate</em> — <span class="accent">which stage lost the evidence</span>.</div>
+</div></div>
+
+<div class="scene" data-scene="evals"><div class="pad">
+  <h2 class="beat" data-beat="0" style="font-size:56px">None of it counts unless it is <span class="accent">measured</span>.</h2>
+  <div class="bk">
+    <div class="bkc beat" data-beat="1"><b>temporal</b><span>mined from<br>amendment diffs</span></div>
+    <div class="bkc beat" data-beat="1"><b>scope</b><span>mined from<br>applicability clauses</span></div>
+    <div class="bkc beat" data-beat="1"><b>generated</b><span>mined from<br>section structure</span></div>
+    <div class="bkc hand beat" data-beat="1"><b>human</b><span>hand-written &mdash; the<br>one that measures<br>usefulness</span></div>
+  </div>
+  <div class="ivs beat" data-beat="2">
+    <div class="ivl">29 items</div>
+    <div class="ivt"><div class="ivb" style="left:8%;width:52%"><span class="ivp" style="left:44%"></span></div></div>
+    <div class="ivl">212 items</div>
+    <div class="ivt"><div class="ivb tight" style="left:24%;width:24%"><span class="ivp" style="left:46%"></span></div></div>
+  </div>
+  <div class="lead beat" data-beat="3" style="margin-top:26px;color:var(--paper);font-size:30px">
+    79.3% &rarr; 79.6% sufficiency. The estimate held; the interval <span class="accent">more than halved</span>.
+    The old number was not wrong &mdash; it was <span class="warn">unfalsifiable</span>.</div>
+</div></div>
+
+<div class="scene" data-scene="obs"><div class="pad">
+  <div class="eyebrow beat" data-beat="0">in production</div>
+  <h2 class="beat" data-beat="0" style="font-size:56px">A number nobody reads back<br>stops being true quietly.</h2>
+  <div class="ids">
+    <div class="idc beat" data-beat="1"><b>request_id</b><span>groups one call &mdash; including the lines written before retrieval, and after a failure</span></div>
+    <div class="idc beat" data-beat="1"><b>trace_id</b><span>names a replayable artifact &mdash; every stage, as it ran</span></div>
+  </div>
+  <div class="carry beat" data-beat="2" style="margin-top:26px;font-size:21px">
+    refused at the door &rarr; <i>request_id only</i> &mdash; which separates <em>answered wrongly</em> from <em>never answered</em></div>
+  <div class="gate beat" data-beat="3">
+    <u>warrant eval gate</u> fails a build on regression.<br>
+    The floor is the bootstrap <i>lower bound</i>, not the point estimate &mdash;<br>
+    a gate at 97.8% fails <i>half of all unchanged runs</i>.</div>
 </div></div>
 
 <div class="scene" data-scene="off"><div class="pad">
@@ -213,8 +363,22 @@
 
 <script>
 const TIMELINE = /*__TIMELINE__*/;
-const t0 = performance.now();
+let t0 = 0;
 const at = (sec, fn) => setTimeout(fn, Math.max(0, sec * 1000 - (performance.now() - t0)));
+
+// Nothing is scheduled at load. The builder waits for fonts and a settled recorder, then
+// calls __run(), so the first frame of the timeline is a frame the recorder actually has.
+window.__run = function () {
+  const sync = document.getElementById('sync');
+  sync.classList.add('flash');
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    t0 = performance.now();          // t=0 is the frame the flash is visible on
+    setTimeout(() => sync.classList.remove('flash'), 140);
+    schedule();
+  }));
+};
+
+function schedule() {
 
 for (const s of TIMELINE.scenes) {
   const el = document.querySelector(`[data-scene="${s.name}"]`);
@@ -246,7 +410,7 @@ const rail = document.getElementById('rail');
 const chapter = document.getElementById('chapter');
 const TITLES = {hook:'the problem', change:'an amendment', problem:'the problem',
                 what:'what it is', split:'two answers', gate:'the mechanism',
-                trace:'the trace', off:'what ships off', close:'warrant'};
+                example:'one question, two dates', build:'how the corpus is made', path:'the request path', trace:'the trace', evals:'the benchmark', obs:'operations', off:'what ships off', close:'warrant'};
 const span = (s) => Math.max(0.6, s.end - s.start);
 const segs = TIMELINE.scenes.map(s => {
   const d = document.createElement('div');
@@ -277,6 +441,7 @@ at(TIMELINE.scenes[TIMELINE.scenes.length - 1].start - 0.45, () => {
   chapter.classList.remove('on');
   document.getElementById('wm').classList.remove('on');
 });
+}
 </script>
 </body>
 </html>

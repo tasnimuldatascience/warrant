@@ -27,6 +27,7 @@ W, H = 1600, 900
 GAP_LINE, GAP_SCENE = 0.34, 0.86
 LEAD_IN = 1.1          #: quiet before the first word, so a viewer arrives before it starts
 TAIL = 2.6             #: the close holds, so a loop does not snap away from the URL
+SETTLE = 1.5           #: recorder warm-up before the timeline starts; trimmed off by the marker
 
 
 #: Caption geometry. Two lines of ~42 characters is the width a player renders without
@@ -123,6 +124,26 @@ def build_audio(manifest: list[dict], total: float, dest: pathlib.Path) -> None:
                     "-map", "[out]", "-c:a", "pcm_s16le", str(dest)], check=True)
 
 
+def sync_offset(webm: pathlib.Path, window: float = 12.0) -> float:
+    """Where the timeline's t=0 actually sits in the recording.
+
+    The page flashes a white frame at its own zero. Everything before it is recorder
+    warm-up. Reducing each frame to one grey pixel and taking the brightest is enough --
+    the film is near-black throughout, so the flash is unambiguous.
+    """
+    out = subprocess.run(
+        ["ffmpeg", "-v", "error", "-t", str(window), "-i", str(webm),
+         "-vf", "format=gray,scale=1:1:flags=area", "-f", "rawvideo", "-"],
+        capture_output=True, check=True).stdout
+    if not out:
+        return 0.0
+    peak = max(out)
+    if peak < 200:                      # no marker -- an older recording, leave it alone
+        return 0.0
+    fps = len(out) / window
+    return out.index(peak) / fps
+
+
 def main() -> int:
     mf = VOICE / "manifest.json"
     if not mf.exists():
@@ -157,6 +178,12 @@ def main() -> int:
                             reduced_motion="no-preference")
         pg = ctx.new_page()
         pg.goto((MEDIA / "film.html").resolve().as_uri())
+        # The webfonts are fetched over the network and Chromium does not paint until they
+        # land, so the recorder's first frame is not the timeline's first frame. Wait for
+        # them, let the recorder settle, and only then start the clock.
+        pg.wait_for_function("document.fonts.status === 'loaded'", timeout=30_000)
+        time.sleep(SETTLE)
+        pg.evaluate("window.__run()")
         time.sleep(total + 1.2)
         pg.close()
         ctx.close()
@@ -166,8 +193,11 @@ def main() -> int:
     shutil.rmtree(tmp, ignore_errors=True)
     print("  video recorded")
 
+    offset = sync_offset(MEDIA / "_film.webm")
+    print(f"  sync marker at {offset:.2f}s -- trimming the recorder's warm-up")
+
     subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-i", str(MEDIA / "_film.webm"),
+        ["ffmpeg", "-y", "-v", "error", "-ss", f"{offset:.3f}", "-i", str(MEDIA / "_film.webm"),
          "-i", str(MEDIA / "_film.wav"),
          "-map", "0:v", "-map", "1:a",
          "-vf", "scale=1920:-2:flags=lanczos,pad=1920:1080:0:(oh-ih)/2:color=0x12161A",

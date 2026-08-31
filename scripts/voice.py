@@ -46,6 +46,15 @@ LINES: list[tuple[str, str, str | None]] = [
                 None),
     ("what",    "Every paragraph carries two clocks. When it was the law, "
                 "and when the system believed it was.", None),
+    ("example", "Here is what that buys you.", None),
+    ("example", "How long may a recruitment incentive service agreement run?", None),
+    ("example", "Asked as of June twenty twenty-four: not less than six months, "
+                "and not more than four years.",
+                "Asked as of June 2024: not less than 6 months, and not more than 4 years."),
+    ("example", "Asked today: not more than four years. Six words left that paragraph "
+                "in February, and the citation says which version it read.",
+                "Asked today: not more than 4 years. Six words left that paragraph in "
+                "February, and the citation says which version it read."),
     ("split",   "Ask as of twenty twenty-four, and the gate admits nine thousand, "
                 "seven hundred and thirty paragraphs.",
                 "Ask as of 2024, and the gate admits 9,730 paragraphs."),
@@ -58,9 +67,46 @@ LINES: list[tuple[str, str, str | None]] = [
                 "Two hundred and twenty wins. Zero losses.",
                 "Removing that filter costs 96 points of wrong-version rate. "
                 "220 wins. 0 losses."),
+    ("build",   "That gate is only as good as what feeds it.", None),
+    ("build",   "Five source tiers, from the statute down to scanned archives.", None),
+    ("build",   "Every snapshot is parsed, stripped of its apparatus, and diffed against "
+                "the last one structurally, not by text.", None),
+    ("build",   "What survives is a paragraph with two clocks on it. That is what the "
+                "store holds.", None),
+    ("path",    "A question then walks the same path every time.", None),
+    ("path",    "The date and the scope become predicates, so the store hands back "
+                "nine thousand six hundred and twenty-seven candidates instead of everything.",
+                "The date and the scope become predicates, so the store hands back 9,627 "
+                "candidates instead of everything."),
+    ("path",    "Lexical and dense retrieval run concurrently, fourteen and fifteen "
+                "milliseconds, fused by rank rather than by score.",
+                "Lexical and dense retrieval run concurrently — 14 and 15 ms — "
+                "fused by rank rather than by score."),
+    ("path",    "Then generation emits claims with evidence I Ds, an aligner computes the "
+                "spans, and the whole run is written down under one trace I D.",
+                "Then generation emits claims with evidence ids, an aligner computes the "
+                "spans, and the whole run is written down under one trace id."),
     ("trace",   "And when it is wrong, every stage recorded what it saw.", None),
     ("trace",   "So the question is not, why did the model hallucinate. "
                 "It is, which stage lost the evidence.", None),
+    ("evals",   "None of that is worth anything unless it is measured.", None),
+    ("evals",   "Four buckets. Three mined automatically from amendment diffs, and one "
+                "written by hand, which is the one that measures usefulness.", None),
+    ("evals",   "That hand-written set went from twenty-nine items to two hundred and "
+                "twelve. The score barely moved. The interval more than halved.",
+                "That hand-written set went from 29 items to 212. The score barely moved. "
+                "The interval more than halved."),
+    ("evals",   "The old number was not wrong. It was unfalsifiable.", None),
+    ("obs",     "In production the same discipline applies.", None),
+    ("obs",     "Metrics for every stage, and logs carrying two I Ds. One groups a call. "
+                "One names a replayable artifact.",
+                "Metrics for every stage, and logs carrying two ids. One groups a call. "
+                "One names a replayable artifact."),
+    ("obs",     "A request refused at the door has the first and not the second, which "
+                "separates answering wrongly from never answering at all.", None),
+    ("obs",     "And a build fails on regression against a bootstrapped lower bound, "
+                "because a gate set at the point estimate fails half of all unchanged runs.",
+                None),
     ("off",     "Five components in here ship switched off.", None),
     ("off",     "A reranker. An entailment verifier. A calibrated confidence model. "
                 "Multi-hop retrieval. A fine-tuned encoder.", None),
