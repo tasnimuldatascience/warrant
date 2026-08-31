@@ -89,6 +89,35 @@ changes whether the right paragraph is present — it changes whether the *wrong
 beside it. One measure would have dismissed the predicate on the very bucket built to prove it
 works. The cross-encoder, on the same test, does nothing measurable.
 
+## Against a baseline, not just against itself
+
+Every ablation above removes a stage from *this* pipeline. The question a skeptic asks first
+is different: **is any of it better than what a competent engineer builds in an afternoon?**
+Three from-scratch baselines on the same held-out test split answer it.
+
+| | sufficiency | wrong-version rate | p50 |
+|---|---:|---:|---:|
+| naive dense (embed, cosine, top-k) | 87.1% | **89.7%** | 1.5 ms |
+| BM25 only | **95.3%** | **97.0%** | — |
+| dense + post-filter by date | — | — | ran dry on 6.9% of items |
+| **warrant** | **96.1%** | **0.0%** | 83.4 ms |
+
++89.7 points on wrong-version rate — CI 84.1–95.1, **209 wins / 0 losses**, p=2.4e-63.
+
+**BM25 alone is within 0.8 points of the full pipeline on sufficiency, and wrong about which
+version 97% of the time.** That is the sharpest available demonstration that sufficiency
+alone is a misleading metric, and it is now measured against an outside baseline rather than
+argued for.
+
+All three baselines cite an out-of-scope part on **42 of 42** scope-exclusion items, because
+none of them implements an applicability predicate. Warrant is 0%.
+
+**A baseline also wins, and it stays in the report.** Naive dense is ~54× cheaper for 90.6%
+of the sufficiency, and beats BM25 on the human bucket (74.5% vs 56.9%, p=0.022) — embeddings
+over bag-of-words on paraphrased questions. "90% as good for 2% of the cost" is true on that
+axis and false on the one that matters here, and both halves belong in the same sentence.
+[results/eval-019](results/eval-019-baselines.md).
+
 ## The generator
 
 Retrieval quality and answer quality are different questions, and only the first used to be
