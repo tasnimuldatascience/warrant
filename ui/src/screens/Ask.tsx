@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useCorpus } from "../app";
 import { useAsk, type AskState, type FollowupTurn } from "../ask";
 import { api, type AskParams, type Evidence, type SectionVersion, type StreamEvidence } from "../api";
@@ -254,12 +254,17 @@ function TemporalHero({ onRun }: { onRun: (asOf: string) => void }) {
  */
 export default function Ask() {
   const { meta, ready, clampDate } = useCorpus();
-  const { state, run, cancel, reset, reopen } = useAsk();
+  const { state, run, cancel, reset, reopen, askFollowup } = useAsk();
   const [route, go] = useRoute();
 
   // Reopen once, on the trace id in the hash. Keyed on the id rather than the route object so
   // a re-render does not re-fetch, and guarded against the id we ourselves just wrote.
-  const linked = route.screen === "ask" ? (route.rest[0] ?? "") : "";
+  // `play` is the autoplay token, not a trace id. Without this the reopen below fetched
+  // /api/exchange/play, took the 404, and reset the state the autoplay had just set -- so the
+  // demonstration silently never started.
+  const token = route.screen === "ask" ? (route.rest[0] ?? "") : "";
+  const linked = token === "play" ? "" : token;
+  const autoplay = token === "play";
   useEffect(() => {
     if (linked && linked !== state.done?.trace_id) void reopen(linked);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -269,9 +274,10 @@ export default function Ask() {
   // back here. Replaces rather than pushes: a follow-up is the same exchange, and every turn
   // adding a history entry would make Back mean something no reader expects.
   useEffect(() => {
+    if (autoplay) return;          // the token is the route while a demonstration is running
     const tid = state.done?.trace_id;
     if (tid && tid !== linked) go("ask", tid);
-  }, [state.done?.trace_id, linked, go]);
+  }, [state.done?.trace_id, linked, go, autoplay]);
 
   const [q, setQ] = useState(() => stored("warrant.q") ?? EXAMPLES[0]);
   const [asOf, setAsOf] = useState(() =>
@@ -316,6 +322,76 @@ export default function Ask() {
     setService(null);
     run(params);
   }
+
+  /**
+   * `#/ask/play` runs the demonstration by itself, for real.
+   *
+   * Not a staged transcript and not a video loop: it fills the form, calls the same API a
+   * visitor would, and waits on the actual stream. That makes it recordable in one take and
+   * -- more usefully -- it means the thing in the video cannot drift from the thing that
+   * runs, because they are the same code path.
+   *
+   * Steps advance on completion where there is something to wait for, and on a timer where
+   * there is only something to read. A fixed timer through a generation would either cut the
+   * answer off or sit on a finished screen, depending on how busy the GPU was that day.
+   */
+  /** Bring a section into view, centred, so the recording follows the argument. */
+  const show = (selector: string) => {
+    document.querySelector(selector)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  const step = useRef(0);
+  useEffect(() => {
+    if (!autoplay || blocked) return;
+    let live = true;
+    const timers: number[] = [];
+    const at = (ms: number, fn: () => void) => {
+      timers.push(window.setTimeout(() => live && fn(), ms));
+    };
+
+    step.current = 0;
+    at(1600, () => runDemo(DEMOS[0]));                       // the 2024 reading
+    // Scroll the results into view. Without this the recording is thirty seconds of a hero
+    // while the interesting half happens below the fold -- which is exactly what the first
+    // take turned out to be.
+    at(3400, () => show(".evidence, [data-evidence]"));
+    return () => {
+      live = false;
+      timers.forEach(window.clearTimeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoplay, blocked]);
+
+  // The rest of the sequence hangs off completion rather than a stopwatch: the second reading
+  // only makes its point once the first one is on screen to contrast with.
+  useEffect(() => {
+    if (!autoplay || state.phase !== "done") return;
+    let live = true;
+    const timers: number[] = [];
+    const at = (ms: number, fn: () => void) => {
+      timers.push(window.setTimeout(() => live && fn(), ms));
+    };
+
+    if (step.current === 0) {
+      step.current = 1;
+      at(3200, () => window.scrollTo({ top: 0, behavior: "smooth" }));
+      at(4600, () => runDemo(DEMOS[1] ?? DEMOS[0]));         // the same question, later date
+      at(6400, () => show(".evidence, [data-evidence]"));
+    } else if (step.current === 1) {
+      step.current = 2;
+      at(3600, () => show(".followup-form"));
+      at(5200, () => askFollowup("what is the exception in paragraph (b)?"));
+      at(7000, () => show(".followups"));
+    } else if (step.current === 2) {
+      step.current = 3;
+      at(5600, () => go("timeline", "630.306"));
+    }
+    return () => {
+      live = false;
+      timers.forEach(window.clearTimeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoplay, state.phase]);
 
   const payValues = meta.facets.pay_system ?? [];
   const serviceValues = meta.facets.service ?? [];

@@ -198,25 +198,37 @@ The five-switched-off slide is the one that gets a reply from an engineer. Give 
 
 ---
 
+---
+
 ## What is already recorded
 
-`media/` holds a real capture of the terminal walkthrough, made with
-`scripts/record-demo.ps1` against a live server:
+`media/` holds a real capture of the interface, made by `scripts/record_ui.py`:
 
 | file | what it is |
 |---|---|
-| `warrant-demo.mp4` | 1080p, 78s, silent — the terminal demo end to end |
-| `warrant-demo.gif` | 16s, 960px — the streaming order, for LinkedIn's inline autoplay |
-| `warrant-demo.srt` | narration, timed to the script above |
-| `thumbnail.png` | 1280×720, built by `scripts/thumbnail.py` |
+| `warrant-demo.mp4` | 1080p, 74s, captions burned in |
+| `warrant-demo.gif` | 14s — the evidence ledger, for LinkedIn's inline autoplay |
+| `warrant-demo.srt` | the same captions, as a sidecar for YouTube |
+| `thumbnail.png` | 1280×720, drawn by `scripts/thumbnail.py` |
 
-The capture is silent on purpose: **record the voice-over separately** against the SRT and mux
-it, rather than narrating live. A live take ties the pacing of your sentences to the pacing of
-a language model, and one of those is not under your control.
+**The page drives itself.** `#/ask/play` runs the demonstration against the real API and waits
+on the actual stream — it is not a staged transcript and not a video loop, so the thing in the
+video cannot drift from the thing that runs. Re-record any time with:
 
-The mp4 is the terminal, not the browser — a screen recorder cannot drive the UI here. The
-browser segments in the script above still need recording by hand, and they are the ones worth
-doing well: the date-scrub cold open is the strongest fifteen seconds available.
+```bash
+make serve                       # then ask one question, so the model is warm
+python scripts/record_ui.py      # writes media/ui-raw.webm
+```
 
-The thumbnail is drawn, not screenshotted. A downscaled UI screenshot is unreadable at the
-size a feed actually renders it, which is why most engineering thumbnails are.
+Recorded with Playwright rather than a screen grabber, which matters for two reasons: it
+captures the *page* and so cannot film your tabs, bookmarks or wallpaper, and the viewport is
+fixed, so the framing is identical every time. The first attempt used desktop capture and put
+a personal desktop in frame.
+
+**There is no voice-over, deliberately.** Record it separately against the SRT and mux it.
+Narrating live ties the pacing of your sentences to the pacing of a language model, and only
+one of those is under your control. Captions are burned in because most feed viewers watch
+muted.
+
+The thumbnail is drawn rather than screenshotted: a downscaled UI screenshot is unreadable at
+the size a feed renders it, which is why most engineering thumbnails are.
