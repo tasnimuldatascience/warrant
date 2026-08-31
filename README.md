@@ -384,9 +384,9 @@ Not legal advice. Not a general web-scale RAG. Every architecture section is mar
 
 ![the request path](media/warrant-architecture.gif)
 
-*Every stage, what survived it, and what it cost. The full interface walkthrough is
-[`media/warrant-demo.mp4`](media/warrant-demo.mp4) — recorded against the running system,
-nothing staged.*
+*One question, two dates, two correct answers — §575.110(a) lost its six-month floor on
+13 February 2026. Every figure is read from the running system; the full interface
+walkthrough is [`media/warrant-demo.mp4`](media/warrant-demo.mp4).*
 
 
 

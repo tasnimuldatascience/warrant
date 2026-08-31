@@ -2,173 +2,147 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>warrant — architecture</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,200;6..72,300;6..72,400;6..72,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<title>warrant — one question, two dates</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200;0,6..72,300;0,6..72,400;0,6..72,600;1,6..72,300&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   :root{
     --paper:#eceeef; --leaf:#f9fafa; --ink:#12161a; --muted:#5a656d;
     --rule:#cfd5d8; --firm:#a7b1b7; --accent:#1a4f7a; --wash:#dbe6ef;
-    --stamp:#9b2c22;
+    --stamp:#9b2c22; --stampwash:#f3e2df;
     --serif:"Newsreader",Georgia,serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
   }
   *{box-sizing:border-box}
   html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--serif)}
-  body{width:1200px;height:812px;overflow:hidden;position:relative;padding:0 56px}
+  body{width:1200px;height:900px;overflow:hidden;position:relative}
 
-  /* -- the hook ------------------------------------------------------------------ */
-  .hook{padding-top:48px;opacity:0;transform:translateY(10px);
-        transition:opacity .6s ease,transform .6s ease}
-  .hook.on{opacity:1;transform:none}
-  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.2em;text-transform:uppercase;
-          color:var(--stamp);margin-bottom:14px}
-  h1{font-size:62px;line-height:1.04;font-weight:300;margin:0;letter-spacing:-.025em;
-     max-width:19ch}
-  h1 em{font-style:normal;border-bottom:4px solid var(--stamp);padding-bottom:2px}
+  .fade{opacity:0;transition:opacity .5s ease}
+  .fade.on{opacity:1}
+  .rise{opacity:0;transform:translateY(12px);
+        transition:opacity .55s ease,transform .55s ease}
+  .rise.on{opacity:1;transform:none}
 
-  /* -- the pipeline -------------------------------------------------------------- */
-  .pipe{position:absolute;left:56px;right:56px;top:292px;
-        display:grid;grid-template-columns:repeat(5,1fr);gap:0;align-items:stretch}
-  .cell{position:relative;padding:0 26px 0 0}
-  .cell:last-child{padding-right:0}
+  /* the one question */
+  .top{padding:46px 60px 0;text-align:center}
+  .kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.2em;
+          text-transform:uppercase;color:var(--stamp)}
+  .q{font-size:41px;font-weight:300;line-height:1.14;margin:16px auto 0;max-width:21ch;
+     letter-spacing:-.018em}
 
-  .card{border-top:3px solid var(--ink);background:var(--leaf);padding:20px 20px 22px;
-        height:242px;opacity:0;transform:translateY(14px);
-        transition:opacity .5s ease,transform .5s ease}
-  .card.on{opacity:1;transform:none}
-  .card.gate{border-top-color:var(--stamp);background:var(--wash);
-             box-shadow:0 0 0 2px var(--wash)}
+  svg{position:absolute;inset:0;width:1200px;height:900px;pointer-events:none}
+  .wire{fill:none;stroke:var(--firm);stroke-width:1.5;
+        stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
+        transition:stroke-dashoffset .6s ease}
+  .wire.on{stroke-dashoffset:0}
 
-  .num{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--muted)}
-  .name{font-size:30px;font-weight:300;line-height:1.1;margin:14px 0 12px;letter-spacing:-.01em}
-  .card.gate .name{color:var(--stamp)}
-  .say{font-size:16px;line-height:1.45;font-weight:300;color:var(--muted)}
-  .card.gate .say{color:var(--ink)}
+  /* the two lanes */
+  .lane{position:absolute;top:288px;width:474px}
+  .lane.l{left:60px}  .lane.r{right:60px}
 
-  .cost{margin-top:16px;padding-top:11px;border-top:1px solid var(--rule);
-        font-family:var(--mono);font-size:15px;font-variant-numeric:tabular-nums;
-        opacity:0;transition:opacity .45s}
-  .cost.on{opacity:1}
+  .date{font-family:var(--mono);font-size:26px;font-weight:500;letter-spacing:.02em;
+        text-align:center;font-variant-numeric:tabular-nums;padding-bottom:11px;
+        border-bottom:2px solid var(--ink)}
 
-  /* the arrow between cards */
-  .arw{position:absolute;right:6px;top:112px;width:16px;height:2px;background:var(--firm);
-       opacity:0;transition:opacity .3s}
-  .arw:after{content:"";position:absolute;right:-1px;top:-4px;
-             border-left:7px solid var(--firm);border-top:5px solid transparent;
-             border-bottom:5px solid transparent}
-  .arw.on{opacity:1}
+  .gate{margin-top:0;border:1.5px solid var(--ink);border-top:none;background:var(--leaf);
+        padding:15px 20px 16px;text-align:center}
+  .gate .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.18em;
+             text-transform:uppercase;color:var(--muted)}
+  .gate .big{font-family:var(--mono);font-size:23px;margin-top:7px;
+             font-variant-numeric:tabular-nums}
+  .gate .sm{font-size:13.5px;color:var(--muted);margin-top:5px}
 
-  /* -- the payoff ---------------------------------------------------------------- */
-  .payoff{position:absolute;left:56px;right:56px;top:588px;
-          display:grid;grid-template-columns:1fr 1fr;gap:52px;
-          opacity:0;transform:translateY(10px);
-          transition:opacity .6s ease,transform .6s ease}
-  .payoff.on{opacity:1;transform:none}
-  .p{border-left:3px solid var(--accent);padding:4px 0 4px 20px}
-  .p.warn{border-left-color:var(--stamp)}
-  .p b{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.16em;
-       text-transform:uppercase;color:var(--muted);margin-bottom:8px}
-  .p span{font-size:19px;line-height:1.42;font-weight:300;display:block;
-           padding-right:6px}
+  .para{margin-top:26px;border-left:3px solid var(--accent);background:var(--leaf);
+        padding:16px 20px 18px}
+  .para.old{border-left-color:var(--stamp);background:var(--stampwash)}
+  .para .cite{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.03em}
+  .para.old .cite{color:var(--stamp)}
+  .para .txt{font-size:19px;line-height:1.44;font-weight:300;margin-top:10px}
+  .para .txt b{font-weight:600}
 
-  .foot{position:absolute;left:56px;right:56px;bottom:46px;padding-top:16px;
+  .verdict{margin-top:20px;text-align:center;font-size:23px;font-weight:300;font-style:italic}
+
+  /* the line that ties it together */
+  .both{position:absolute;left:60px;right:60px;top:706px;text-align:center}
+  .both .r1{font-size:27px;font-weight:300;line-height:1.34}
+  .both .r1 u{text-decoration:none;border-bottom:3px solid var(--stamp);padding-bottom:1px}
+  .both .r2{font-size:16.5px;color:var(--muted);margin-top:12px;line-height:1.45;
+            max-width:74ch;margin-left:auto;margin-right:auto}
+
+  .foot{position:absolute;left:60px;right:60px;bottom:38px;padding-top:14px;
         border-top:2px solid var(--ink);display:flex;justify-content:space-between;
-        align-items:baseline;opacity:0;transition:opacity .55s}
-  .foot.on{opacity:1}
-  .foot .big{font-size:21px;font-weight:300}
-  .foot .src{font-family:var(--mono);font-size:12px;color:var(--muted)}
+        align-items:baseline}
+  .foot .big{font-size:19px;font-weight:300}
+  .foot .src{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
 </style>
 </head>
 <body>
 
-  <div class="hook" id="hook">
-    <div class="kicker">Retrieval over law that changes</div>
-    <h1>Most RAG will quote you <em>repealed law</em>.</h1>
+  <div class="top">
+    <div class="kicker rise" id="kick">One question</div>
+    <div class="q rise" id="q">How long must a recruitment incentive service agreement&nbsp;run?</div>
   </div>
 
-  <div class="pipe">
-    <div class="cell">
-      <div class="card" id="c1">
-        <div class="num">01</div>
-        <div class="name">Question<br>+ a date</div>
-        <div class="say">"By when must restored leave be scheduled?" — asked as of 2021.</div>
-        <div class="cost" id="k1">&nbsp;</div>
-      </div>
-      <div class="arw" id="a1"></div>
-    </div>
+  <svg viewBox="0 0 1200 900">
+    <path class="wire" id="wl" d="M600 244 V266 Q600 278 588 278 H309 Q297 278 297 290 V300"/>
+    <path class="wire" id="wr" d="M600 244 V266 Q600 278 612 278 H891 Q903 278 903 290 V300"/>
+  </svg>
 
-    <div class="cell">
-      <div class="card gate" id="c2">
-        <div class="num">02</div>
-        <div class="name">The gate</div>
-        <div class="say">Only the text in force <em>on that date</em>, and only the parts that govern you.</div>
-        <div class="cost" id="k2">9,627 of 13,212</div>
-      </div>
-      <div class="arw" id="a2"></div>
+  <!-- 2019 -->
+  <div class="lane l">
+    <div class="date fade" id="dl">as of 2024</div>
+    <div class="gate rise" id="gl">
+      <div class="lbl">the gate admits</div>
+      <div class="big">9,730 paragraphs</div>
+      <div class="sm">the text in force that day</div>
     </div>
-
-    <div class="cell">
-      <div class="card" id="c3">
-        <div class="num">03</div>
-        <div class="name">Search</div>
-        <div class="say">Keyword and vectors, run at the same time, fused by rank.</div>
-        <div class="cost" id="k3">18 ms</div>
-      </div>
-      <div class="arw" id="a3"></div>
+    <div class="para old rise" id="pl">
+      <div class="cite">§ 575.110(a) · in force to 13 Feb 2026</div>
+      <div class="txt">The service period may not <b>be less than 6 months</b> and may not exceed 4 years.</div>
     </div>
-
-    <div class="cell">
-      <div class="card" id="c4">
-        <div class="num">04</div>
-        <div class="name">Evidence</div>
-        <div class="say">16 paragraphs, each cited to a version — not to a page.</div>
-        <div class="cost" id="k4">on screen first</div>
-      </div>
-      <div class="arw" id="a4"></div>
-    </div>
-
-    <div class="cell">
-      <div class="card" id="c5">
-        <div class="num">05</div>
-        <div class="name">Answer</div>
-        <div class="say">Claims that carry their evidence ids, and a replayable trace.</div>
-        <div class="cost" id="k5">6.6 s</div>
-      </div>
-    </div>
+    <div class="verdict fade" id="vl">Correct — in 2024.</div>
   </div>
 
-  <div class="payoff" id="payoff">
-    <div class="p warn">
-      <b>Ask it about 2019 instead</b>
-      <span>The gate admits a different paragraph, and the answer changes. Both are correct — on their own dates.</span>
+  <!-- 2021 -->
+  <div class="lane r">
+    <div class="date fade" id="dr">as of 2026</div>
+    <div class="gate rise" id="gr">
+      <div class="lbl">the gate admits</div>
+      <div class="big">10,007 paragraphs</div>
+      <div class="sm">amended 13 Feb 2026</div>
     </div>
-    <div class="p">
-      <b>And when it is wrong</b>
-      <span>Every stage recorded what it saw, so the question is <em>which stage lost the evidence</em> — not "why did the AI hallucinate".</span>
+    <div class="para rise" id="pr">
+      <div class="cite">§ 575.110(a) · in force now</div>
+      <div class="txt">The service period may not exceed 4 years. <b>The floor was removed.</b></div>
     </div>
+    <div class="verdict fade" id="vr">Correct — in 2026.</div>
   </div>
 
-  <div class="foot" id="foot">
-    <span class="big">A wrong answer has an address, not an excuse.</span>
+  <div class="both rise" id="both">
+    <div class="r1">Same question. Same section. <u>Two right answers.</u></div>
+    <div class="r2">The date is a filter pushed <em>into</em> the query, not a note in the prompt —
+      so superseded text is never a candidate. Every claim cites a version id, and every stage
+      records what it saw, which is how a wrong answer gets an address.</div>
+  </div>
+
+  <div class="foot fade" id="foot">
+    <span class="big">warrant — bitemporal retrieval over 5 CFR</span>
     <span class="src">github.com/tasnimuldatascience/warrant</span>
   </div>
 
 <script>
-  const $ = (id) => document.getElementById(id);
+  const $ = (i) => document.getElementById(i);
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
   const on = (...ids) => ids.forEach(i => $(i).classList.add('on'));
+  for (const w of document.querySelectorAll('.wire')) w.style.setProperty('--len', w.getTotalLength());
 
   async function play() {
-    on('hook');                       await wait(1500);
-    on('c1');                         await wait(560);
-    on('a1'); on('c2');               await wait(300);
-    on('k2');                         await wait(760);
-    on('a2'); on('c3');               await wait(300);
-    on('k3');                         await wait(680);
-    on('a3'); on('c4');               await wait(300);
-    on('k4');                         await wait(680);
-    on('a4'); on('c5');               await wait(300);
-    on('k5');                         await wait(900);
-    on('payoff');                     await wait(1700);
+    on('kick');                 await wait(340);
+    on('q');                    await wait(1450);
+    on('wl','wr');              await wait(620);
+    on('dl','dr');              await wait(760);
+    on('gl','gr');              await wait(1250);
+    on('pl','pr');              await wait(2100);
+    on('vl','vr');              await wait(1350);
+    on('both');                 await wait(2000);
     on('foot');
   }
   setTimeout(play, 600);
