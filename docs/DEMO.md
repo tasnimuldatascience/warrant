@@ -206,7 +206,8 @@ The five-switched-off slide is the one that gets a reply from an engineer. Give 
 
 | file | what it is |
 |---|---|
-| `warrant-demo.mp4` | 1080p, 74s, captions burned in |
+| `warrant-demo.mp4` | 1080p, 74s, captions burned in, **silent** |
+| `warrant-demo-narrated.mp4` | the same cut with a synthesised scratch track |
 | `warrant-demo.gif` | 14s, full frame — general purpose |
 | `warrant-linkedin.gif` | 14s, 1000×730, 2.9 MB — cropped to the content column |
 | `warrant-architecture.gif` | 13s, 1000×750, **1.4 MB** — the request path, animated |
@@ -264,3 +265,21 @@ built, measured, and disabled.** Nobody scrolls past that.
 
 Keep `warrant-demo.mp4` for the YouTube upload and for anyone who asks to see it working. The
 architecture loop earns the click; the walkthrough rewards it.
+
+### About the narrated cut
+
+`warrant-demo-narrated.mp4` carries a **synthesised** voice, built by
+`scripts/narrate.ps1` straight from the SRT — each cue spoken and placed at its own
+timestamp, so the pacing is exactly the pacing the captions promise.
+
+It is a **scratch track**. It exists so the cut can be judged with sound and the timing
+checked before anyone books a microphone. A Windows SAPI voice on a portfolio piece reads
+as a shortcut, and a reviewer will hear it in two seconds — record over it before
+publishing. The command is one line and the SRT is the script:
+
+```powershell
+powershell -File scripts/narrate.ps1     # rebuilds the scratch track from the SRT
+```
+
+Silent remains the default for `warrant-demo.mp4`, because most feed viewers watch muted and
+the captions are burned in.
