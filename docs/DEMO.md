@@ -207,7 +207,8 @@ The five-switched-off slide is the one that gets a reply from an engineer. Give 
 | file | what it is |
 |---|---|
 | `warrant-demo.mp4` | 1080p, 74s, captions burned in |
-| `warrant-demo.gif` | 14s — the evidence ledger, for LinkedIn's inline autoplay |
+| `warrant-demo.gif` | 14s, full frame — general purpose |
+| `warrant-linkedin.gif` | 14s, 1000×730, 2.9 MB — cropped to the content column |
 | `warrant-demo.srt` | the same captions, as a sidecar for YouTube |
 | `thumbnail.png` | 1280×720, drawn by `scripts/thumbnail.py` |
 
@@ -232,3 +233,18 @@ muted.
 
 The thumbnail is drawn rather than screenshotted: a downscaled UI screenshot is unreadable at
 the size a feed renders it, which is why most engineering thumbnails are.
+
+### On the LinkedIn GIF specifically
+
+`warrant-linkedin.gif` is cropped to the content column and starts below the masthead, because
+a feed renders a GIF at roughly 500px wide and the full 1920px frame reduces the body text to
+noise at that size. It opens on the grounded answer and runs through the pinned follow-up:
+the one beat that shows a claim tied to a specific version of a specific paragraph, and a
+second turn that cannot drift off its date.
+
+2.9 MB, under LinkedIn's limit with room to spare. If it ever needs to be smaller, drop the
+frame rate before the width — text survives fewer frames far better than it survives fewer
+pixels.
+
+An mp4 will always look better than a GIF in that feed, and LinkedIn autoplays video natively.
+The GIF exists for the places that will not take one.
