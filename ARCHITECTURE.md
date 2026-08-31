@@ -458,7 +458,7 @@ system is wrong* rather than *a test broke*.
 - Apparatus stripping is idempotent, and fixtures assert the known pointer forms are removed.
 - *(P1)* Every claim in an emitted answer carries at least one evidence ID.
 
-## 10. Load policy **[partial]**
+## 10. Load policy **[built]**
 
 Under pressure, **admission control before degradation**. Shedding the verifier to save
 latency trades a slow answer for a wrong answer about someone's leave entitlement, which is the
@@ -470,7 +470,7 @@ now produces the frontier to decide from. Measured on the temporal bucket: lexic
 cross-encoder is a sheddable stage and the as-of predicate — which the paired test shows moves
 the wrong-version rate by 96 points — is not.
 
-Admission control is **[partial]** for generation, which is where the real ceiling is: 29.2
+Admission control is **[built]** for generation, which is where the real ceiling is: 29.2
 tokens/s unbatched over ~205 tokens is 7.7 requests per minute, so the API admits under a
 semaphore
 and returns `503` with `Retry-After` rather than queueing a client for the 33 minutes that 100

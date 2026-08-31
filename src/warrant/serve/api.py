@@ -65,6 +65,7 @@ from ..retrieve.hybrid import Retriever
 from ..retrieve.scope import PART_RESTRICTIONS, Scope
 from . import guard
 from . import metrics as _metrics
+from .cache import cache_key
 
 log = logging.getLogger(__name__)
 
@@ -85,13 +86,16 @@ THREAD_LIMIT = 4
 #: answer length was taken as the 420-token cap rather than the ~205 actually produced.
 #: results/eval-010-capacity.md re-derives all three in isolation.
 #:
-#: The semaphore is still the right shape and is still not sufficient: `/api/ask` is a sync
-#: endpoint, so the queue that actually forms is the unbounded, untimed thread pool in *front*
-#: of this, and a 503's floor is 20.1 s. 100 concurrent requests took ~33 minutes to drain
-#: and past ~35 in flight the GPU OOMs, so the queue is bounded and over-capacity load is
-#: refused with 503 + Retry-After rather than accepted and abandoned 20 minutes later. This
-#: does not raise the ceiling -- nothing here can -- it makes the ceiling visible to callers.
-_GENERATION_SLOT = threading.Semaphore(1)
+#: An `anyio.Semaphore`, not `threading.Semaphore`: it must be acquired from `/api/ask`'s own
+#: async body, before any thread hop, or the fix does nothing. The semaphore was always the
+#: right shape and was never sufficient on its own -- `/api/ask` used to be a sync endpoint,
+#: so the queue that actually formed was the unbounded, untimed thread pool sitting *in
+#: front* of this, and a 503's floor was 20.1 s, paid entirely inside that pool (p50 65 s at
+#: 3x load). Acquiring here, in the coroutine, means a request that cannot get the slot is
+#: refused without ever taking one of `THREAD_LIMIT`'s four tokens -- which is also what stops
+#: a generation overload from starving `/api/section`, `/api/meta` and `/health`, all of which
+#: share that pool. results/eval-010-capacity.md section 3.
+_GENERATION_SLOT = anyio.Semaphore(1)
 #: How long a request will wait for the slot before being told to come back.
 GENERATE_QUEUE_WAIT_S = 20.0
 #: Total budget for one request's generation, queue time included.
@@ -330,6 +334,7 @@ class Runtime:
     generate: bool = True
     record_traces: bool = True
     _traces: Any = None
+    _cache: Any = None
     _store: Store | None = None
     _retriever: Retriever | None = None
     _generator: Any = None
@@ -408,6 +413,25 @@ class Runtime:
         return self._traces
 
     @property
+    def cache(self) -> Any:
+        """The answer cache, opened lazily and shared.
+
+        Its own SQLite file, next to the corpus rather than inside it -- ``cache.py``'s
+        docstring is explicit that deleting the cache must be a plain ``rm``, never a decision
+        about data worth keeping, so it cannot share a file with the store or the traces.
+        ``cfg.store_path.with_name(...)`` rather than a new config field: the cache has no
+        identity of its own to configure, only a corpus to sit beside.
+        """
+        if self._cache is None:
+            with self._lock:
+                if self._cache is None:
+                    from .cache import AnswerCache
+
+                    self._cache = AnswerCache(
+                        self.cfg.store_path.with_name("cache.sqlite3"), self.store)
+        return self._cache
+
+    @property
     def generator(self) -> Any:
         if self._generator is None and self.generate:
             with self._lock:
@@ -456,22 +480,37 @@ class Runtime:
                 _ = self.generator
 
 
-def _generate_answer(rt: Runtime, question: str, excerpts: list[tuple[str, str, str]], *,
-                     as_of: str, scope: str):
+async def _generate_answer(rt: Runtime, question: str, excerpts: list[tuple[str, str, str]], *,
+                           as_of: str, scope: str, deadline: float):
     """Run one generation, or refuse honestly if the queue is already full.
+
+    ``deadline`` is a `time.monotonic` timestamp fixed at request *arrival* by the
+    ``deadline`` middleware below -- not computed here. It used to be: `deadline =
+    time.monotonic() + GENERATE_DEADLINE_S` sat at the top of this function, which only ever
+    ran after a sync `/api/ask` had already waited, unbounded, for one of `THREAD_LIMIT`'s
+    thread-pool tokens. So the 90 s budget always had 90 s left the moment it was finally
+    checked, and `GENERATE_FLOOR_S` could never fire -- confirmed from the metrics themselves:
+    `warrant_admission_rejected_total{reason="deadline"}` had never incremented once across
+    14,628 requests, including a 100-way overload (results/eval-010-capacity.md).
 
     Generation is serialised (`_GENERATION_SLOT`) because the measured ceiling is 29.2 tok/s
     unbatched -- 7.7 req/min -- and nothing in this module can raise it. What it can do is
     stop pretending: without the semaphore, 100 concurrent requests drained in ~33 minutes
     and the GPU OOM'd past ~35 in flight, so callers got a timeout, a truncated stream or a
-    500, all of which read as "broken" rather than "at capacity".
+    500, all of which read as "broken" rather than "at capacity". The slot is acquired here,
+    in this coroutine, before any thread hop -- a caller that cannot get it is refused from
+    the event loop, having never taken one of the four tokens `/api/section` and `/health`
+    also queue on.
 
     It also happens to serialise the unguarded ``_LOADED`` dict in ``generate.model``, which
     is populated on the first ``complete`` call rather than at construction, so the 2,944 MB
     model can only ever be built by one request at a time.
     """
-    deadline = time.monotonic() + GENERATE_DEADLINE_S
-    if not _GENERATION_SLOT.acquire(timeout=GENERATE_QUEUE_WAIT_S):
+    acquired = False
+    with anyio.move_on_after(GENERATE_QUEUE_WAIT_S):
+        await _GENERATION_SLOT.acquire()
+        acquired = True
+    if not acquired:
         rt.stats["generate_rejected"] += 1
         rt.metrics.inc("warrant_admission_rejected_total", reason="queue_full")
         raise HTTPException(
@@ -486,7 +525,8 @@ def _generate_answer(rt: Runtime, question: str, excerpts: list[tuple[str, str, 
                 headers={"Retry-After": str(RETRY_AFTER_S)})
         rt.stats["generate_calls"] += 1
         with rt.metrics.timed("warrant_generate_duration_s"):
-            return rt.generator.answer(question, excerpts, as_of=as_of, scope=scope)
+            return await anyio.to_thread.run_sync(
+                lambda: rt.generator.answer(question, excerpts, as_of=as_of, scope=scope))
     finally:
         _GENERATION_SLOT.release()
 
@@ -612,6 +652,21 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
                        status=f"{status // 100}xx")
         rt.metrics.observe("warrant_request_duration_ms", elapsed, endpoint=endpoint)
         return response
+
+    @app.middleware("http")
+    async def deadline(request: Request, call_next) -> Response:
+        """Stamp the generation deadline at arrival, before anything can queue.
+
+        `_generate_answer` used to compute this itself, after whatever wait a sync `/api/ask`
+        had already spent getting a thread-pool token -- so the 90 s budget always had 90 s
+        left the moment it was checked, and `GENERATE_FLOOR_S` could never fire. Measuring
+        from here instead means the budget is spent by the wait the caller actually
+        experienced, not reset by however long it takes some later stage of the pipeline to
+        look at the clock. Set for every request, not just `/api/ask`, because it costs one
+        `time.monotonic()` call and a request that never generates never reads it.
+        """
+        request.state.deadline = time.monotonic() + GENERATE_DEADLINE_S
+        return await call_next(request)
 
     @app.middleware("http")
     async def request_id(request: Request, call_next) -> Response:
@@ -747,50 +802,129 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
     # -- ask --------------------------------------------------------------------
 
     @app.get("/api/ask", response_model=AskResponse)
-    def ask(question: guard.Question = guard.QuestionParam,
-            as_of: str = Query(max_length=32),
-            pay_system: str | None = None,
-            service: str | None = None,
-            generate: bool = True) -> AskResponse:
+    async def ask(request: Request, question: guard.Question = guard.QuestionParam,
+                 as_of: str | None = Query(default=None, max_length=32),
+                 pay_system: str | None = None,
+                 service: str | None = None,
+                 generate: bool = True,
+                 system_time: str | None = Query(
+                     default=None, max_length=32,
+                     description="Answer as this system believed on this timestamp, rather "
+                                 "than as it believes now. The second time axis: `as_of` "
+                                 "picks which law was in force, this picks which reading of "
+                                 "it Warrant held. Pinning it bypasses the answer cache.")
+                 ) -> AskResponse:
+        """Retrieve, optionally generate, optionally serve from cache -- async throughout.
+
+        ``async def`` plus an explicit thread hop for every blocking call is the whole point:
+        a sync handler here runs in Starlette's four-token thread pool, the same pool
+        `/api/section` and `/health` share, and a request that is only *waiting* for the
+        generation slot has no business holding one of those tokens for up to
+        `GENERATE_QUEUE_WAIT_S`. Measured consequence of getting this wrong:
+        `/api/ask/stream` (already async) is unaffected while this endpoint, as a sync one,
+        drove `/health` to a 188 s p50 and every retrieval probe to a timeout during a
+        generation overload (results/eval-010-capacity.md section 3).
+
+        ``system_time`` is the second time axis, and exposing it is deliberate rather than
+        incidental. ``as_of`` asks which law was in force; ``system_time`` asks which reading
+        of it this system held -- so a corrected parse can be inspected against the answer it
+        replaced, which is the entire reason the store is bitemporal rather than merely
+        dated. It was reachable from nowhere until now, which also made the cache's central
+        rule aspirational: a replay must not read an entry computed against *current* belief
+        (`serve/cache.py`'s module docstring). A rule nothing can exercise is a rule nobody
+        can trust, so it is threaded through retrieval, the cache gate and output validation.
+        """
         # The normalised text, not the bytes that arrived: what gets echoed back must be
         # the query that was actually answered. `question.raw` still holds the original.
         q = question.text
-        as_of = _date(as_of, "as_of")
+        if as_of is not None:
+            as_of = _date(as_of, "as_of")
         scope = _scope(pay_system, service)
-        rt.read_only()
-        trace = rt.retriever.retrieve(q, as_of=as_of, scope=scope)
-        rows = _rows(rt.store, trace.final)
 
-        payload = AskResponse(
-            question=q, as_of=as_of, scope=scope.describe(),
-            excluded_parts=trace.excluded_parts,
-            trace=TraceView(
-                admitted=trace.admitted,
-                corpus=_meta().chunks,
-                stages=[
-                    Stage(name="predicates", out=trace.admitted),
-                    Stage(name="lexical", out=len(trace.lexical)),
-                    Stage(name="dense", out=len(trace.dense)),
-                    Stage(name="fusion", out=len(trace.fused)),
-                    Stage(name="rerank", out=len(trace.reranked)),
-                    Stage(name="final", out=len(trace.final)),
-                ],
-            ),
-            evidence=[_evidence(r) for r in rows],
-        )
+        def _resolve_as_of() -> str:
+            rt.read_only()
+            # An omitted as_of used to be a required query parameter; resolving it to
+            # today's date instead of the corpus's own latest snapshot would rotate every
+            # cache key at midnight UTC for no reason the corpus can see -- the snapshot
+            # date only moves when something is ingested.
+            resolved = as_of or _meta().latest
+            if resolved is None:
+                raise HTTPException(503, "no corpus; as_of has no default to resolve to")
+            return resolved
+
+        def _retrieve(resolved: str) -> tuple[Any, list, int]:
+            rt.read_only()
+            trace = rt.retriever.retrieve(q, as_of=resolved, scope=scope,
+                                          system_time=system_time)
+            return trace, _rows(rt.store, trace.final), _meta().chunks
+
+        def _payload_from(resolved: str, trace: Any, rows: list, corpus_chunks: int
+                          ) -> AskResponse:
+            return AskResponse(
+                question=q, as_of=resolved, scope=scope.describe(),
+                excluded_parts=trace.excluded_parts,
+                trace=TraceView(
+                    admitted=trace.admitted,
+                    corpus=corpus_chunks,
+                    stages=[
+                        Stage(name="predicates", out=trace.admitted),
+                        Stage(name="lexical", out=len(trace.lexical)),
+                        Stage(name="dense", out=len(trace.dense)),
+                        Stage(name="fusion", out=len(trace.fused)),
+                        Stage(name="rerank", out=len(trace.reranked)),
+                        Stage(name="final", out=len(trace.final)),
+                    ],
+                ),
+                evidence=[_evidence(r) for r in rows],
+            )
+
         if not (generate and rt.generate):
+            def _retrieval_only() -> tuple[str, Any, list, int]:
+                resolved = _resolve_as_of()
+                trace, rows, corpus_chunks = _retrieve(resolved)
+                return resolved, trace, rows, corpus_chunks
+
+            resolved_as_of, trace, rows, corpus_chunks = await anyio.to_thread.run_sync(
+                _retrieval_only)
+            payload = _payload_from(resolved_as_of, trace, rows, corpus_chunks)
             payload.trace_id = _record(rt, trace)
             return payload
 
+        # Never read the cache on a replay: belief invalidation is defined against *current*
+        # belief, so an entry correctly dead for a live request may be exactly what a request
+        # pinned to the past is asking about (serve/cache.py).
+        cacheable = system_time is None
+        cfg_hash = rt.cfg.hash
+
+        def _lookup() -> tuple[str, str | None, Any, Any, list | None, int | None]:
+            resolved = _resolve_as_of()
+            k = cache_key(q, as_of=resolved, scope=scope, config_hash=cfg_hash) \
+                if cacheable else None
+            hit = rt.cache.get(k) if k is not None else None
+            if hit is not None:
+                return resolved, k, hit, None, None, None
+            trace, rows, corpus_chunks = _retrieve(resolved)
+            return resolved, k, None, trace, rows, corpus_chunks
+
+        resolved_as_of, cache_key_, hit, trace, rows, corpus_chunks = (
+            await anyio.to_thread.run_sync(_lookup))
+        if hit is not None:
+            rt.metrics.inc("warrant_cache_total", outcome="hit")
+            return AskResponse.model_validate(hit.payload)
+        if cache_key_ is not None:
+            rt.metrics.inc("warrant_cache_total", outcome="miss")
+
+        payload = _payload_from(resolved_as_of, trace, rows, corpus_chunks)
         prompt = guard.bound_excerpts(excerpts_for(rt.store, trace))
         prompt.cost().check(GENERATE_DEADLINE_S)
-        answer = _generate_answer(rt, q, prompt.excerpts,
-                                  as_of=as_of, scope=scope.describe())
+        answer = await _generate_answer(rt, q, prompt.excerpts, as_of=resolved_as_of,
+                                        scope=scope.describe(), deadline=request.state.deadline)
         # Recorded before validation, deliberately: a response withheld for failing its
         # output check is the one you most want to replay, and recording afterwards would
         # be the one path that leaves no trace.
         payload.trace_id = _record(rt, trace, answer=answer)
-        guard.check_answer_against(rt.store, answer, as_of=as_of,
+        guard.check_answer_against(rt.store, answer, as_of=resolved_as_of,
+                                   system_time=system_time,
                                    retrieved=[v for v, _, _ in prompt.excerpts])
         payload.abstained = answer.abstained
         payload.parse_failed = answer.parse_failed
@@ -807,6 +941,16 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
             )
             for c in answer.claims
         ]
+
+        if cache_key_ is not None:
+            # Every version id the response depends on, not just the claims' evidence: the
+            # displayed evidence rows are shown whether or not a claim cited them, and a
+            # response built on superseded text is stale either way.
+            cited = sorted({e.version_id for e in payload.evidence} |
+                           {v for c in answer.claims for v in c.evidence})
+            await anyio.to_thread.run_sync(
+                lambda: rt.cache.put(cache_key_, payload.model_dump(), cited=cited,
+                                     query=q, as_of=resolved_as_of, config_hash=cfg_hash))
         return payload
 
 
@@ -837,7 +981,7 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
                          "frame ends the stream in place of `done`, because after the "
                          "response opens the status code is already spent.",
                          "content": {"text/event-stream": {}}}})
-    async def ask_stream(question: guard.Question = guard.QuestionParam,
+    async def ask_stream(request: Request, question: guard.Question = guard.QuestionParam,
                          as_of: str = Query(max_length=32),
                          pay_system: str | None = None,
                          service: str | None = None) -> StreamingResponse:
@@ -886,9 +1030,13 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
                                       "note": "one at a time; measured 29.2 tok/s"})
                 prompt = guard.bound_excerpts(excerpts_for(rt.store, trace))
                 prompt.cost().check(GENERATE_DEADLINE_S)
-                answer = await anyio.to_thread.run_sync(
-                    lambda: _generate_answer(rt, q, prompt.excerpts,
-                                             as_of=as_of_date, scope=scope.describe()))
+                # No thread hop here: `_generate_answer` acquires the (async) generation
+                # semaphore itself before hopping to a thread only for the actual generation
+                # call, so wrapping this whole call in `run_sync` would put the wait for the
+                # slot back inside the thread pool -- exactly the bug `/api/ask` was fixed for.
+                answer = await _generate_answer(rt, q, prompt.excerpts, as_of=as_of_date,
+                                                scope=scope.describe(),
+                                                deadline=request.state.deadline)
                 tid = _record(rt, trace, answer=answer)
                 guard.check_answer_against(rt.store, answer, as_of=as_of_date,
                                            retrieved=[v for v, _, _ in prompt.excerpts])
@@ -999,7 +1147,7 @@ def create_app(cfg: Config | None = None, *, generate: bool = True, store: Store
     if UI_DIR.exists():
         app.mount("/assets", StaticFiles(directory=UI_DIR / "assets"), name="assets")
 
-        @app.get("/")
+        @app.get("/", response_class=FileResponse, include_in_schema=False)
         def index() -> FileResponse:
             return FileResponse(UI_DIR / "index.html")
 

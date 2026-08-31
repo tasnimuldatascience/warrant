@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import time
 
 import anyio
 import pytest
@@ -125,6 +126,12 @@ def cfg(tmp_path_factory) -> Config:
     c.index.dense.enabled = False
     c.index.rerank.enabled = False
     c.corpus.parts = PARTS
+    # Every test that uses this fixture injects its own `store` (see the `store` fixture
+    # below), so `c.store.path` is never opened as a corpus -- but `Runtime.cache` derives
+    # the answer cache's file from it (`store_path.with_name("cache.sqlite3")`), and leaving
+    # it at the default would write a real `data/cache.sqlite3` into the checkout every time
+    # a generate=True test runs.
+    c.store.path = str(tmp_path_factory.mktemp("cache_home") / "warrant.sqlite3")
     budget = tmp_path_factory.mktemp("budget") / "failure-budget.json"
     budget.write_text(json.dumps(BUDGET), encoding="utf-8")
     c.store.budget = str(budget)
@@ -414,6 +421,21 @@ class _AnsweringGenerator:
                       True, {vid: excerpts[0][2]})
 
 
+class _CountingGenerator:
+    """`_AnsweringGenerator`, plus a class-level call count.
+
+    Class-level rather than instance-level: `Runtime.generator` builds and caches exactly one
+    instance per app, and a cache test needs to tell "answered once, served again from SQLite"
+    apart from "answered twice", without reaching into the app for the instance itself.
+    """
+
+    calls = 0
+
+    def answer(self, question, excerpts, *, as_of, scope):
+        type(self).calls += 1
+        return _AnsweringGenerator().answer(question, excerpts, as_of=as_of, scope=scope)
+
+
 def test_ask_returns_claims_and_spans_when_generation_runs(cfg: Config, store: Store,
                                                            monkeypatch):
     monkeypatch.setattr("warrant.generate.model.Generator", _AnsweringGenerator)
@@ -450,7 +472,9 @@ def test_scope_excludes_the_parts_it_does_not_govern(client: TestClient):
 
 def test_generation_runs_one_at_a_time(cfg: Config):
     rt = api.Runtime(cfg, generate=True, _generator=_FakeGenerator())
-    got = api._generate_answer(rt, "q", [], as_of="2024-06-01", scope="government-wide")
+    got = anyio.run(lambda: api._generate_answer(
+        rt, "q", [], as_of="2024-06-01", scope="government-wide",
+        deadline=time.monotonic() + api.GENERATE_DEADLINE_S))
     assert got == "q@2024-06-01/government-wide"
     assert rt.stats["generate_calls"] == 1
 
@@ -460,23 +484,98 @@ def test_a_full_queue_is_refused_with_retry_after(cfg: Config, monkeypatch):
     nothing here can raise it; the queue can only be honest about it."""
     monkeypatch.setattr(api, "GENERATE_QUEUE_WAIT_S", 0.05)
     rt = api.Runtime(cfg, generate=True, _generator=_FakeGenerator())
-    with api._GENERATION_SLOT, pytest.raises(HTTPException) as exc:
-        api._generate_answer(rt, "q", [], as_of="2024-06-01", scope="government-wide")
-    assert exc.value.status_code == 503
-    assert exc.value.headers["Retry-After"] == str(api.RETRY_AFTER_S)
+
+    async def run() -> HTTPException:
+        async with api._GENERATION_SLOT:
+            with pytest.raises(HTTPException) as exc:
+                await api._generate_answer(
+                    rt, "q", [], as_of="2024-06-01", scope="government-wide",
+                    deadline=time.monotonic() + api.GENERATE_DEADLINE_S)
+            return exc.value
+
+    exc = anyio.run(run)
+    assert exc.status_code == 503
+    assert exc.headers["Retry-After"] == str(api.RETRY_AFTER_S)
     assert rt.stats["generate_rejected"] == 1
 
 
-def test_a_request_that_cannot_meet_its_deadline_is_refused(cfg: Config, monkeypatch):
+def test_a_request_that_cannot_meet_its_deadline_is_refused(cfg: Config):
     """A 420-token answer takes ~19.7 s at 21.3 tok/s and may be retried once, so starting
     one with less budget than that only burns the GPU on an answer nobody will receive."""
-    monkeypatch.setattr(api, "GENERATE_DEADLINE_S", 0.0)
     rt = api.Runtime(cfg, generate=True, _generator=_FakeGenerator())
-    with pytest.raises(HTTPException) as exc:
-        api._generate_answer(rt, "q", [], as_of="2024-06-01", scope="government-wide")
-    assert exc.value.status_code == 503
-    assert "deadline" in exc.value.detail
-    assert not api._GENERATION_SLOT._value < 1, "the slot must be released on refusal"
+
+    async def run() -> HTTPException:
+        with pytest.raises(HTTPException) as exc:
+            # A deadline already in the past: the same effect the old
+            # `monkeypatch.setattr(api, "GENERATE_DEADLINE_S", 0.0)` had, expressed the way a
+            # real caller now produces it -- the budget is fixed at arrival, not recomputed.
+            await api._generate_answer(rt, "q", [], as_of="2024-06-01",
+                                       scope="government-wide", deadline=time.monotonic())
+        return exc.value
+
+    exc = anyio.run(run)
+    assert exc.status_code == 503
+    assert "deadline" in exc.detail
+    assert api._GENERATION_SLOT.value == 1, "the slot must be released on refusal"
+
+
+def test_a_refused_request_never_occupies_a_thread(cfg: Config, monkeypatch):
+    """The whole point of acquiring the semaphore before the thread hop: a caller that
+    cannot get the slot must be told so from the event loop, never having taken one of
+    `THREAD_LIMIT`'s four tokens. results/eval-010-capacity.md measured the old shape doing
+    this backwards -- a 503's floor was 20.1s, paid entirely inside the thread pool that
+    `/api/section` and `/health` also share."""
+    monkeypatch.setattr(api, "GENERATE_QUEUE_WAIT_S", 0.05)
+    rt = api.Runtime(cfg, generate=True, _generator=_FakeGenerator())
+
+    def _boom(*a, **k):
+        raise AssertionError("a refused request must never reach the thread pool")
+
+    monkeypatch.setattr(anyio.to_thread, "run_sync", _boom)
+
+    async def run() -> HTTPException:
+        async with api._GENERATION_SLOT:
+            with pytest.raises(HTTPException) as exc:
+                await api._generate_answer(
+                    rt, "q", [], as_of="2024-06-01", scope="government-wide",
+                    deadline=time.monotonic() + api.GENERATE_DEADLINE_S)
+            return exc.value
+
+    exc = anyio.run(run)
+    assert exc.status_code == 503
+
+
+def test_deadline_is_stamped_at_request_arrival(cfg: Config, store: Store, monkeypatch,
+                                                 tmp_path):
+    """`_generate_answer` used to compute its own deadline, after however long retrieval and
+    the (unbounded, pre-fix) thread-pool wait took -- so the budget was always full by the
+    time it was checked, and `GENERATE_FLOOR_S` could never fire across 14,628 requests
+    (results/eval-010-capacity.md). The `deadline` middleware fixes that by stamping
+    `request.state.deadline` before any of that happens; this asserts the value `/api/ask`
+    hands to `_generate_answer` really is close to when the request arrived, not to when
+    generation was finally reached."""
+    captured = {}
+
+    async def fake_generate_answer(rt, q, excerpts, *, as_of, scope, deadline):
+        captured["deadline"] = deadline
+        return _AnsweringGenerator().answer(q, excerpts, as_of=as_of, scope=scope)
+
+    monkeypatch.setattr(api, "_generate_answer", fake_generate_answer)
+    # A private cache file: `cfg` is module-scoped and shared by every other generate=True
+    # test, and this question would otherwise be served from whatever those left behind.
+    c = cfg.model_copy(deep=True)
+    c.store.path = str(tmp_path / "warrant.sqlite3")
+    app = create_app(c, generate=True, store=store, warm=False, thread_limit=2,
+                     guards=guard.Guards(enabled=False))
+    before = time.monotonic()
+    with TestClient(app) as client:
+        r = client.get("/api/ask", params={"q": "restored annual leave",
+                                           "as_of": "2018-06-01"})
+    after = time.monotonic()
+
+    assert r.status_code == 200
+    lo, hi = before + api.GENERATE_DEADLINE_S, after + api.GENERATE_DEADLINE_S
+    assert lo <= captured["deadline"] <= hi
 
 
 # -- threadpool cap ----------------------------------------------------------------
@@ -657,3 +756,69 @@ def test_a_refusal_after_the_stream_opens_arrives_as_an_event(cfg: Config, store
         assert response.status_code == 200
         events = dict(_sse_events("".join(response.iter_text())))
     assert events.get("error", {}).get("status") == 503
+
+
+# -- the answer cache ---------------------------------------------------------------
+
+
+def test_a_cache_hit_returns_the_same_payload_without_generating_again(
+        cfg: Config, store: Store, monkeypatch, tmp_path):
+    """`serve/cache.py` had 25 tests and was imported by nothing
+    (results/eval-010-capacity.md section 8) -- every request paid full generation. Wired in,
+    an identical second question must come back byte-for-byte without touching the model."""
+    _CountingGenerator.calls = 0
+    monkeypatch.setattr("warrant.generate.model.Generator", _CountingGenerator)
+    c = cfg.model_copy(deep=True)
+    c.store.path = str(tmp_path / "warrant.sqlite3")  # a cache file this test alone writes
+    app = create_app(c, generate=True, store=store, warm=False, thread_limit=2,
+                     guards=guard.Guards(enabled=False))
+    params = {"q": "restored annual leave", "as_of": "2018-06-01"}
+    with TestClient(app) as client:
+        first = client.get("/api/ask", params=params)
+        second = client.get("/api/ask", params=params)
+        metrics = client.get("/metrics").text
+
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    assert _CountingGenerator.calls == 1, "the second identical question must not regenerate"
+    assert 'warrant_cache_total{outcome="miss"} 1' in metrics
+    assert 'warrant_cache_total{outcome="hit"} 1' in metrics
+
+
+def test_a_pinned_system_time_bypasses_the_cache(cfg: Config, store: Store, monkeypatch,
+                                                 tmp_path):
+    """`serve/cache.py`'s module docstring: a replay pinned to a past `system_time` must not
+    read this cache, because belief invalidation is defined against *current* belief -- an
+    entry correctly dead for a live request may be exactly what a pinned request wants. Since
+    `/api/ask` has no other way to reach a non-live `system_time`, this is also the only place
+    that rule is reachable at all."""
+    _CountingGenerator.calls = 0
+    monkeypatch.setattr("warrant.generate.model.Generator", _CountingGenerator)
+    c = cfg.model_copy(deep=True)
+    c.store.path = str(tmp_path / "warrant.sqlite3")
+    app = create_app(c, generate=True, store=store, warm=False, thread_limit=2,
+                     guards=guard.Guards(enabled=False))
+    # After T0 (when the synthetic store started believing everything, see SYNTHETIC's
+    # `store.add(..., system_from=T0)`), so the pinned request still finds its evidence
+    # in force and does not fail output validation for an unrelated reason.
+    params = {"q": "restored annual leave", "as_of": "2018-06-01",
+              "system_time": "2026-03-01T00:00:00+00:00"}
+    with TestClient(app) as client:
+        first = client.get("/api/ask", params=params)
+        second = client.get("/api/ask", params=params)
+        metrics = client.get("/metrics").text
+
+    assert first.status_code == second.status_code == 200
+    assert _CountingGenerator.calls == 2, "a pinned system_time must generate every time"
+    assert 'warrant_cache_total{outcome="hit"}' not in metrics
+    assert 'warrant_cache_total{outcome="miss"}' not in metrics
+
+
+def test_an_omitted_as_of_resolves_to_the_corpus_latest_snapshot(client: TestClient):
+    """Defaulting to today's date instead would rotate every cache key at midnight UTC for a
+    reason the corpus itself cannot see -- the snapshot date only moves when something is
+    ingested. `_meta().latest` is that snapshot date."""
+    meta = client.get("/api/meta").json()
+    r = client.get("/api/ask", params={"q": "restored annual leave"})
+    assert r.status_code == 200
+    assert r.json()["as_of"] == meta["latest"]
