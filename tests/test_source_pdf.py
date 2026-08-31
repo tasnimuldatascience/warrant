@@ -14,6 +14,8 @@ process-wide singleton, so the first test pays for the ONNX models and the rest 
 
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
 
 # PyMuPDF lives in the `sources` extra, which a lexical-only install does not carry.
@@ -21,6 +23,13 @@ import pytest
 # entire run, so one absent optional dependency reported every other test as unrun.
 fitz = pytest.importorskip(  # noqa: E402 - must run before the imports it gates
     "fitz", reason="requires the `sources` extra (PyMuPDF)")
+
+# rapidocr publishes no 3.13 wheel, so `sources` installs without it there. Only the two
+# tests that build the *real* engine are gated -- everything else drives a stub, and
+# skipping the whole module would have silently dropped 32 passing tests to protect two.
+needs_ocr = pytest.mark.skipif(  # noqa: E402
+    importlib.util.find_spec("rapidocr_onnxruntime") is None,
+    reason="rapidocr-onnxruntime publishes no wheel for this Python")
 
 from warrant.sources.base import (  # noqa: E402 - gated by the importorskip above
     KIND_CAPTION,
@@ -327,6 +336,7 @@ def test_ocr_can_be_switched_off_entirely():
     assert parse_pdf(data, doc_id="no-ocr", ocr=False) == []
 
 
+@needs_ocr
 def test_the_ocr_engine_is_built_once_per_process():
     """Constructing RapidOCR loads three ONNX models, which costs about as much as reading
     a page. Per-page construction would roughly double OCR time and look like nothing."""

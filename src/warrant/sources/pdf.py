@@ -394,8 +394,10 @@ def ocr_engine() -> object:
                     from rapidocr_onnxruntime import RapidOCR
                 except ImportError as exc:  # pragma: no cover - depends on the extra
                     raise PdfParseError(
-                        "OCR was requested but rapidocr-onnxruntime is not installed; "
-                        "install warrant[sources] or pass ocr=False"
+                        "OCR was requested but rapidocr-onnxruntime is not installed. "
+                        "Install warrant[sources] -- or, on Python 3.13, note that it "
+                        "publishes no wheel there and is excluded by a marker, so use "
+                        "3.12 for scans or pass ocr=False to read the text layer only."
                     ) from exc
                 _OCR_ENGINE = RapidOCR()
     return _OCR_ENGINE
