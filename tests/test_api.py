@@ -990,13 +990,20 @@ def test_followup_stream_is_metered_as_a_generation_route(cfg: Config, store: St
                                          read=guard.RateLimiter(1e-6, burst=1)))
     with TestClient(app) as client:
         origin = {"Origin": "http://localhost:5173"}
-        first = client.get("/api/ask", params={"q": "restored annual leave",
-                                               "as_of": "2018-06-01"}, headers=origin)
-        assert first.status_code == 200
+        # Burn the bucket's single token on the route under test rather than on /api/ask.
+        # The trace id is deliberately unknown, so `load_exchange` raises before anything
+        # reaches the generator -- which is what keeps this a test of the *limiter* and lets
+        # it run on an install with no torch, the way CI installs it.
         with client.stream("GET", "/api/ask/followup/stream",
-                           params={"trace_id": "does-not-matter", "q": "anything at all"},
-                           headers=origin) as response:
-            assert response.status_code == 429
+                           params={"trace_id": "no-such-exchange", "q": "anything at all"},
+                           headers=origin) as first:
+            assert first.status_code == 200, "the route exists and the stream opens"
+            assert "error" in "".join(first.iter_text()), "an unknown exchange is an event"
+
+        with client.stream("GET", "/api/ask/followup/stream",
+                           params={"trace_id": "no-such-exchange", "q": "anything at all"},
+                           headers=origin) as second:
+            assert second.status_code == 429, "the second call must hit the answer bucket"
 
 
 def test_an_exchange_can_be_reopened_from_its_trace(client: TestClient):
