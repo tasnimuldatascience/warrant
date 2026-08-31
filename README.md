@@ -340,7 +340,11 @@ repealed and a reader has to see that at a glance rather than by reading a date.
 
 `/metrics` is Prometheus text, hand-emitted — labels bounded by construction (a route
 template, never a path), buckets chosen against measured latency rather than doubled from
-5 ms. Logs are JSON carrying two ids: `request_id` groups one call including the lines
+5 ms — and the **Observability** screen renders it: per-stage p50/p95, requests by endpoint
+and status class, admission rejections by reason, cache hit rate, corpus gauges. Quantiles
+are labelled *bucket-interpolated* rather than presented as exact, and a quantile that lands
+past the widest finite bucket edge is shown with a `≥` instead of a number that looks
+precise. Logs are JSON carrying two ids: `request_id` groups one call including the lines
 written before retrieval and after a failure, `trace_id` names a replayable artifact. A
 request rejected by admission control has the first and not the second, and that asymmetry
 separates *we answered wrongly* from *we never got to answer*.

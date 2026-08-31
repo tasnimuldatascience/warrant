@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 // -- routing ---------------------------------------------------------------------------
 
-export const SCREENS = ["ask", "timeline", "diff", "trace"] as const;
+export const SCREENS = ["ask", "timeline", "diff", "trace", "observability"] as const;
 export type Screen = (typeof SCREENS)[number];
 
 export interface Route {
@@ -124,6 +124,12 @@ export function ms(v: number): string {
 
 export function pct(v: number, digits = 1): string {
   return `${(v * 100).toFixed(digits)}%`;
+}
+
+/** Seconds, for `warrant_generate_duration_s` -- `ms()` assumes a millisecond input. */
+export function secs(v: number): string {
+  if (v >= 60) return `${(v / 60).toFixed(1)} min`;
+  return `${v.toFixed(v >= 10 ? 1 : 2)} s`;
 }
 
 // -- domain ------------------------------------------------------------------------------

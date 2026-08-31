@@ -22,5 +22,9 @@
     "exactOptionalPropertyTypes": false,
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo"
   },
-  "include": ["src"]
+  "include": ["src"],
+  // `*.test.ts` runs under Node's own type-stripping test runner (`node --test`), not this
+  // project -- it imports `node:test`/`node:assert`, and typing those needs `@types/node`,
+  // which nothing else here depends on. Excluding keeps `tsc -b` clean without adding it.
+  "exclude": ["src/**/*.test.ts"]
 }

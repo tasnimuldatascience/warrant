@@ -7,6 +7,7 @@ import Ask from "./screens/Ask";
 import Timeline from "./screens/Timeline";
 import Diff from "./screens/Diff";
 import Trace from "./screens/Trace";
+import Observability from "./screens/Observability";
 
 // -- corpus context ------------------------------------------------------------------------
 
@@ -32,6 +33,7 @@ const RAIL: { screen: Screen; n: string; what: string }[] = [
   { screen: "timeline", n: "02", what: "Every version of a section, and which one was law." },
   { screen: "diff", n: "03", what: "What the words actually became." },
   { screen: "trace", n: "04", what: "Which stage is answerable for the answer." },
+  { screen: "observability", n: "05", what: "Every request this process has served, aggregated." },
 ];
 
 type Theme = "system" | "light" | "dark";
@@ -295,6 +297,7 @@ export default function App() {
                 {route.screen === "timeline" ? <Timeline route={route} go={go} /> : null}
                 {route.screen === "diff" ? <Diff route={route} go={go} /> : null}
                 {route.screen === "trace" ? <Trace go={go} /> : null}
+                {route.screen === "observability" ? <Observability /> : null}
               </AskProvider>
             </CorpusCtx.Provider>
           )}

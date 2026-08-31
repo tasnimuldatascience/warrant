@@ -437,6 +437,22 @@ export const api = {
       `/api/ask/widen${query({ trace_id: traceId, chunk_id: chunkId })}`,
       signal,
     ),
+
+  /**
+   * `/metrics`, as text -- Prometheus exposition, not JSON, so `get<T>` does not apply.
+   * Parsing lives in `metrics.ts`; this is only the transport half.
+   */
+  metricsText: async (signal?: AbortSignal): Promise<string> => {
+    let res: Response;
+    try {
+      res = await fetch("/metrics", { signal, headers: { accept: "text/plain" } });
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") throw err;
+      throw new ApiError(0, "the API did not respond; is `warrant serve` running?");
+    }
+    if (!res.ok) throw await failure(res);
+    return await res.text();
+  },
 };
 
 export interface AskParams {
