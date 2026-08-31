@@ -576,7 +576,13 @@ def parse_pdf(
         units: list[Unit] = []
         heading = ""
         for n in pages:
-            if time.monotonic() > deadline:
+            # `>=`, not `>`. A zero budget means no time is allowed, and with `>` that only
+            # trips if the clock has advanced -- which on Windows, whose monotonic clock has
+            # ~15.6ms granularity by default, a four-page parse can finish inside. The test
+            # for this failed on windows-3.12 and passed on ubuntu-3.12 and windows-3.13,
+            # which is the signature of a threshold that depends on timer resolution rather
+            # than on the thing being measured.
+            if time.monotonic() >= deadline:
                 raise PdfParseError(
                     f"{doc_id}: exceeded the {timeout_s:.0f}s parse budget at page {n + 1} "
                     f"of {len(pages)}"
