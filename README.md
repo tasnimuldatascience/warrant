@@ -380,6 +380,17 @@ easiest thing in this project to overclaim.
 Not legal advice. Not a general web-scale RAG. Every architecture section is marked
 `[built]`, `[partial]` or `[designed]` so no claim has to be taken on trust.
 
+## See it
+
+`docs/DEMO.md` is a three-minute script with a shot list, and `scripts/demo.py` drives the
+whole sequence against a running server so a recording does not depend on typing:
+
+```bash
+make serve                 # then ask one question so the model is warm
+python scripts/demo.py     # the same question at two dates, the streaming order,
+                           # a pinned follow-up, and a reopenable link
+```
+
 ## Run it
 
 ```bash
